@@ -1,4 +1,4 @@
-import streamlit as st  # 記得在檔案最上方加上這行
+import streamlit as st
 import os
 import zipfile
 import json
@@ -30,6 +30,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
 ]
 
+# 請確認這是你的正確 Google Sheet ID
 SPREADSHEET_ID = "1tkLPKqFQld2bCythqNY0CX83w4y1cWZJvW6qErE8vek"
 
 VIDEO_EXTS = (".mp4", ".mov", ".avi", ".m4v", ".wmv")
@@ -204,26 +205,39 @@ def _prune_content_types_overrides(ct_xml: bytes, keep_parts: Set[str]) -> bytes
 
 class PPTAutomationBot:
     def __init__(self):
+        # 初始化時嘗試取得憑證
         self.creds = self._get_credentials()
-        self.drive_service = build("drive", "v3", credentials=self.creds)
-        self.slides_service = build("slides", "v1", credentials=self.creds)
-        self.sheets_service = build("sheets", "v4", credentials=self.creds)
+        
+        # 只有當憑證有效時，才建立服務
+        if self.creds:
+            self.drive_service = build("drive", "v3", credentials=self.creds)
+            self.slides_service = build("slides", "v1", credentials=self.creds)
+            self.sheets_service = build("sheets", "v4", credentials=self.creds)
+        else:
+            self.drive_service = None
+            self.slides_service = None
+            self.sheets_service = None
 
     def _get_credentials(self):
         creds = None
 
         # 1. 優先嘗試從 Streamlit Cloud 的 Secrets 讀取
+        # 在 Secrets 需設定:
+        # [google_token]
+        # google_token = """{...json content...}"""
         if "google_token" in st.secrets:
             try:
-                # 從雲端 Secrets 讀取 Token 字串並轉回物件
                 token_info = json.loads(st.secrets["google_token"])
                 creds = Credentials.from_authorized_user_info(token_info, SCOPES)
             except Exception as e:
                 print(f"雲端 Token 讀取失敗: {e}")
 
-        # 2. 如果雲端讀不到，才嘗試讀取本機檔案 (開發用)
+        # 2. 如果雲端讀不到，才嘗試讀取本機檔案 (開發環境用)
         if not creds and os.path.exists('token.json'):
-            creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+            try:
+                creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+            except Exception as e:
+                print(f"本機 token.json 讀取失敗: {e}")
 
         # 3. 驗證與重新整理 (Refresh)
         if not creds or not creds.valid:
@@ -232,15 +246,17 @@ class PPTAutomationBot:
                     creds.refresh(Request())
                 except Exception as e:
                     st.error(f"Token 過期且無法自動刷新，請重新生成 token.json: {e}")
-            return None
+                    return None
+            else:
+                # 在雲端上無法彈出瀏覽器，所以如果沒 Token 就只能報錯
+                st.error("找不到有效的憑證，請確認已設定 Streamlit Secrets。")
+                return None
         
-        else:
-            # 在雲端上無法彈出瀏覽器，所以如果沒 Token 就只能報錯
-            st.error("找不到有效的憑證，請確認已設定 Streamlit Secrets。")
-            return None
-            return creds
+        return creds
 
     def get_user_email(self):
+        if not self.drive_service:
+            return "服務未初始化"
         try:
             about = self.drive_service.about().get(fields="user").execute()
             return about["user"]["emailAddress"]
@@ -386,6 +402,10 @@ class PPTAutomationBot:
 
     # === Step 1: 提取與上傳影片 ===
     def extract_and_upload_videos(self, pptx_path, extract_dir, file_prefix="", progress_callback=None, log_callback=None):
+        if not self.drive_service:
+            _log(log_callback, "❌ 服務未初始化，無法上傳影片。")
+            return {}
+
         if not os.path.exists(extract_dir):
             os.makedirs(extract_dir)
 
@@ -566,6 +586,10 @@ class PPTAutomationBot:
 
     # === Step 4: 拆分與上傳 ===
     def split_and_upload(self, slim_pptx, split_jobs, progress_callback=None, log_callback=None, debug_mode=False):
+        if not self.drive_service:
+            _log(log_callback, "❌ 服務未初始化，無法上傳拆分檔。")
+            return []
+
         results = []
         total_jobs = len(split_jobs)
 
@@ -698,6 +722,9 @@ class PPTAutomationBot:
     def embed_videos_in_slides(self, processed_jobs, log_callback=None, debug_mode=False):
         if debug_mode:
             return processed_jobs
+        
+        if not self.slides_service:
+            return processed_jobs
 
         total_jobs = len([j for j in processed_jobs if "presentation_id" in j])
         count = 0
@@ -749,6 +776,10 @@ class PPTAutomationBot:
     # === Step 6: 寫入 Google Sheet ===
     def log_to_sheets(self, completed_jobs, log_callback=None, debug_mode=False):
         if debug_mode:
+            return
+        
+        if not self.sheets_service:
+            _log(log_callback, "❌ 服務未初始化，無法寫入試算表。")
             return
 
         existing_ids = set()
