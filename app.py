@@ -7,6 +7,8 @@ import traceback
 import requests
 from pptx import Presentation
 from ppt_processor import PPTAutomationBot
+import streamlit.components.v1 as components
+
 
 # ==========================================
 #              設定頁面與樣式
@@ -301,8 +303,8 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
 # 0. 確保工作目錄存在（避免首次使用就寫檔失敗）
 os.makedirs(WORK_DIR, exist_ok=True)
 
-# ✅ Header：LOGO + 副標題（300px，同一中線，正確 HTML 渲染）
-st.markdown(
+# ✅ Header：LOGO + 副標題（共同置中，寬度 300px）
+components.html(
     f"""
     <div style="
         width: 100%;
@@ -310,7 +312,7 @@ st.markdown(
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        margin-bottom: 10px;
+        margin: 10px 0 10px 0;
     ">
         <img src="{LOGO_URL}" alt="Aurotek Logo" style="
             width: 300px;
@@ -318,7 +320,6 @@ st.markdown(
             display: block;
             margin: 0 auto;
         " />
-
         <div style="
             margin-top: 6px;
             width: 300px;
@@ -332,7 +333,7 @@ st.markdown(
         </div>
     </div>
     """,
-    unsafe_allow_html=True   # ✅ 這一行是關鍵
+    height=120
 )
 
 # 2. 功能說明 (已透過 CSS 將文字縮小)
