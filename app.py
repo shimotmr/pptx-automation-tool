@@ -272,10 +272,10 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
 #              Main UI (Layout)
 # ==========================================
 
-# [修正] 改用 HTML 容器包裹 Logo 與標題，確保絕對置中
+# [修正] 調整 Logo 寬度為 450px (原 300px 的 1.5 倍)
 st.markdown(f"""
     <div style="text-align: center; padding-bottom: 20px;">
-        <img src="{LOGO_URL}" style="width: 300px; max-width: 80%; height: auto; margin-bottom: 5px;">
+        <img src="{LOGO_URL}" style="width: 450px; max-width: 90%; height: auto; margin-bottom: 10px;">
         <div class="header-subtitle">簡報案例自動化發布平台</div>
     </div>
 """, unsafe_allow_html=True)
