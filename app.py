@@ -37,18 +37,16 @@ st.markdown("""
         font-weight: 500;
     }
 
-    /* 2. Logo 置中與大小控制 */
-    /* Streamlit 的圖片容器 */
-    [data-testid="stImage"] {
-        display: flex;
-        justify-content: center; /* 水平置中 */
-        align-items: center;
-    }
-    /* 控制圖片本體 */
+    /* 2. Logo 大小控制 */
+    /* [修改] 只控制圖片本體大小，置中交給外層 Columns 處理 */
     [data-testid="stImage"] img {
-        width: 300px !important; /* 設定合適寬度 (約原大小 150%) */
+        width: 300px !important; /* 設定合適寬度 */
         max-width: 100% !important;
         object-fit: contain !important;
+        /* 確保圖片本身在容器內也是置中的 (雙重保險) */
+        margin-left: auto;
+        margin-right: auto;
+        display: block;
     }
     
     /* 3. 標題與說明文字樣式 */
@@ -294,9 +292,15 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
 # ==========================================
 #              Main UI (Layout)
 # ==========================================
-# [更新] Header 區塊：置中 Logo，下方置中標題
-st.image(LOGO_URL)
-st.markdown('<div class="header-subtitle">簡報案例自動化發布平台</div>', unsafe_allow_html=True)
+# [新增] 使用 Columns 強制置中 Logo 與標題
+# 比例 [1, 2, 1] 代表中間欄位佔據一半寬度，左右留白
+col_pad1, col_center, col_pad2 = st.columns([1, 2, 1])
+
+with col_center:
+    # use_column_width=True 會讓圖片撐滿這個中間欄位
+    # CSS 會限制它的最大寬度為 300px，從而達到置中效果
+    st.image(LOGO_URL, use_column_width=True)
+    st.markdown('<div class="header-subtitle">簡報案例自動化發布平台</div>', unsafe_allow_html=True)
 
 # 功能說明
 st.info("功能說明： 上傳PPT → 線上拆分 → 影片雲端化 → 內嵌優化 → 簡報雲端化 → 寫入和椿資料庫")
