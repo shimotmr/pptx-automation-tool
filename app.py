@@ -301,44 +301,17 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
 # 0. 確保工作目錄存在（避免首次使用就寫檔失敗）
 os.makedirs(WORK_DIR, exist_ok=True)
 
-# 1. Header：LOGO + 副標題「群組置中」
-col1, col2, col3 = st.columns([1, 2, 1])
-
-with col2:
+# 1. Header：用 st.image + 置中容器（width 一定生效）
+c1, c2, c3 = st.columns([1, 1, 1])
+with c2:
+    st.image(LOGO_URL, width=150)  # ✅ 你要縮 50%：原 300 -> 150
     st.markdown(
-        """
-        <div style="
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            width: 100%;
-        ">
-        """,
+        "<div style='text-align:center; color:gray; font-size:1.0rem; font-weight:500; letter-spacing:2px; margin-top:6px;'>"
+        "簡報案例自動化發布平台"
+        "</div>",
         unsafe_allow_html=True
     )
 
-    # LOGO：固定約 300px
-    st.image(LOGO_URL, width=100)
-
-    # 副標題：與 LOGO 同一個中軸
-    st.markdown(
-        """
-        <div style="
-            margin-top: 6px;
-            text-align: center;
-            color: gray;
-            font-size: 1.0rem;
-            font-weight: 500;
-            letter-spacing: 2px;
-        ">
-            簡報案例自動化發布平台
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    st.markdown("</div>", unsafe_allow_html=True)
 
 # 2. 功能說明 (已透過 CSS 將文字縮小)
 st.info("功能說明： 上傳PPT → 線上拆分 → 影片雲端化 → 內嵌優化 → 簡報雲端化 → 寫入和椿資料庫")
