@@ -301,7 +301,7 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
 # 0. 確保工作目錄存在（避免首次使用就寫檔失敗）
 os.makedirs(WORK_DIR, exist_ok=True)
 
-# 1. Header：LOGO + 副標題（共同置中，寬度 300px）
+# ✅ Header：LOGO + 副標題（300px，同一中線，正確 HTML 渲染）
 st.markdown(
     f"""
     <div style="
@@ -312,7 +312,6 @@ st.markdown(
         justify-content: center;
         margin-bottom: 10px;
     ">
-        <!-- LOGO -->
         <img src="{LOGO_URL}" alt="Aurotek Logo" style="
             width: 300px;
             height: auto;
@@ -320,11 +319,10 @@ st.markdown(
             margin: 0 auto;
         " />
 
-        <!-- 副標題 -->
         <div style="
             margin-top: 6px;
-            width: 300px;              /* ✅ 跟 LOGO 同寬 */
-            text-align: center;        /* ✅ 同一中線 */
+            width: 300px;
+            text-align: center;
             color: gray;
             font-size: 1.0rem;
             font-weight: 500;
@@ -334,9 +332,8 @@ st.markdown(
         </div>
     </div>
     """,
-    unsafe_allow_html=True
+    unsafe_allow_html=True   # ✅ 這一行是關鍵
 )
-
 
 # 2. 功能說明 (已透過 CSS 將文字縮小)
 st.info("功能說明： 上傳PPT → 線上拆分 → 影片雲端化 → 內嵌優化 → 簡報雲端化 → 寫入和椿資料庫")
