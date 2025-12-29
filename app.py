@@ -66,8 +66,16 @@ st.markdown("""
         font-weight: 500;
     }
 
-    /* 4. 進度條顏色 */
+    /* 4. 通用樣式與進度條 */
+    h3 { font-size: 1.5rem !important; font-weight: 600 !important; }
+    h4 { font-size: 1.2rem !important; font-weight: 600 !important; color: #555; }
     .stProgress > div > div > div > div { color: white; font-weight: 500; }
+    
+    /* [新增] 縮小 st.info 功能說明區塊的文字大小 */
+    [data-testid="stAlert"] p {
+        font-size: 0.85rem !important; /* 縮小字體 */
+        line-height: 1.4 !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -290,19 +298,18 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
 #              Main UI (Layout)
 # ==========================================
 
-# 1. Header: 這是修正的關鍵！
-# 我們不使用 st.columns，而是使用一個 100% 寬度的 Flex container。
-# 這樣 "Logo" 和 "文字" 就會被強制在整個螢幕的正中央對齊。
+# 1. Header: Flex container 置中
+# [修正] 將副標題的 font-size 從 1.3rem 縮小為 1.0rem
 st.markdown(f"""
     <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; margin-bottom: 20px;">
         <img src="{LOGO_URL}" style="width: 300px; height: auto; margin-bottom: 10px;">
-        <div style="color: gray; font-size: 1.3rem; font-weight: 500; letter-spacing: 2px;">
+        <div style="color: gray; font-size: 1.0rem; font-weight: 500; letter-spacing: 2px;">
             簡報案例自動化發布平台
         </div>
     </div>
 """, unsafe_allow_html=True)
 
-# 2. 功能說明
+# 2. 功能說明 (已透過 CSS 將文字縮小)
 st.info("功能說明： 上傳PPT → 線上拆分 → 影片雲端化 → 內嵌優化 → 簡報雲端化 → 寫入和椿資料庫")
 
 # 3. 初始化
