@@ -22,11 +22,11 @@ WORK_DIR = "temp_workspace"
 HISTORY_FILE = "job_history.json"
 
 # ==========================================
-#              CSS 深度優化
+#              CSS (保留功能性修正)
 # ==========================================
 st.markdown("""
     <style>
-    /* 1. 隱藏 Streamlit 預設 Header 與 Toolbar */
+    /* 1. 隱藏頂部 Toolbar (保留這個設定，讓畫面更乾淨) */
     header[data-testid="stHeader"] {
         display: none;
     }
@@ -36,25 +36,10 @@ st.markdown("""
     
     /* 2. 調整頂部間距 */
     .block-container {
-        padding-top: 1rem !important; 
+        padding-top: 2rem !important; 
     }
 
-    /* 3. [修正] Logo 樣式：改用 block 佈局 + margin auto 置中，並加大寬度 */
-    .logo-container {
-        width: 100%;
-        text-align: center; /* 傳統置中法，容錯率高 */
-        margin-bottom: 20px;
-        padding-top: 10px;
-    }
-    .logo-img {
-        /* 設定為 800px，確保夠大 (原 600px 可能因 SVG 留白看起來太小) */
-        width: 800px !important; 
-        max-width: 95vw !important; /* 確保手機版不會超出螢幕 */
-        height: auto;
-        display: inline-block; /* 配合 text-align center 使用 */
-    }
-    
-    /* 4. 上傳元件中文化 */
+    /* 3. 上傳元件中文化 (保留這個好用的 Hack) */
     [data-testid="stFileUploaderDropzoneInstructions"] > div:first-child { visibility: hidden; height: 0; }
     [data-testid="stFileUploaderDropzoneInstructions"] > div:nth-child(2) { visibility: hidden; height: 0; }
     [data-testid="stFileUploaderDropzoneInstructions"]::before {
@@ -81,13 +66,8 @@ st.markdown("""
         font-weight: 500;
     }
 
-    /* 5. 通用樣式 */
-    h3 { font-size: 1.5rem !important; font-weight: 600 !important; }
-    h4 { font-size: 1.2rem !important; font-weight: 600 !important; color: #555; }
+    /* 4. 進度條顏色 */
     .stProgress > div > div > div > div { color: white; font-weight: 500; }
-    .header-subtitle {
-        color: gray; font-size: 1.3rem; font-weight: 500; margin-top: 10px; letter-spacing: 2px;
-    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -310,14 +290,13 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
 #              Main UI (Layout)
 # ==========================================
 
-# 1. Header (Logo + Title)
-# 使用最單純的 HTML div + text-align center，這最不容易受 flexbox 限制
-st.markdown(f"""
-    <div class="logo-container">
-        <img src="{LOGO_URL}" class="logo-img">
-        <div class="header-subtitle">簡報案例自動化發布平台</div>
-    </div>
-""", unsafe_allow_html=True)
+# 1. Header: 回歸最原始的 st.image 用法
+# 使用 columns 稍微置中 (左1 : 中4 : 右1)，讓圖片有足夠空間展開
+# width=600 會強制圖片寬度，這裡沒有任何 CSS 會阻擋它
+c_pad1, c_logo, c_pad2 = st.columns([1, 4, 1])
+with c_logo:
+    st.image(LOGO_URL, width=600)
+    st.markdown("<h3 style='text-align: left; color: gray; margin-top: -10px;'>簡報案例自動化發布平台</h3>", unsafe_allow_html=True)
 
 # 2. 功能說明
 st.info("功能說明： 上傳PPT → 線上拆分 → 影片雲端化 → 內嵌優化 → 簡報雲端化 → 寫入和椿資料庫")
