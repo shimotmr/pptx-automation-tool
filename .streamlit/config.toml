@@ -3,7 +3,8 @@ maxUploadSize = 5000
 
 [theme]
 base = "light"
-primaryColor = "#E60012"  # (選填) Aurotek 紅色，讓按鈕跟 Logo 更搭
+# [修改] 將原本的紅色改為深藍色
+primaryColor = "#0E4E8C"
 backgroundColor = "#FFFFFF"
 secondaryBackgroundColor = "#F0F2F6"
 textColor = "#31333F"

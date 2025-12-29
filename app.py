@@ -16,54 +16,55 @@ st.set_page_config(
     layout="wide"
 )
 
-LOGO_URL = "https://aurotek.com/wp-content/uploads/2025/07/logo.svg"
-WORK_DIR = "temp_workspace"
-HISTORY_FILE = "job_history.json"
-
-# --- CSS 優化 (針對 Logo 與 手機版) ---
-st.markdown(f"""
+# 自定義 CSS 以優化 UI 細節
+st.markdown("""
     <style>
-    /* 1. Logo 優化：確保完整露出，高度自適應 */
-    [data-testid="stImage"] img {{
-        max-width: 300px !important; /* 電腦版寬度 */
-        width: 100% !important;
-        height: auto !important;
-        object-fit: contain !important;
-    }}
-
-    /* 2. 手機版優化 (@media query) */
-    @media (max-width: 640px) {{
-        /* 縮小 Logo 在手機上的寬度，避免佔滿螢幕 */
-        [data-testid="stImage"] img {{
-            max-width: 200px !important;
-        }}
-        /* 減少容器內距，讓內容在手機上不會被擠壓 */
-        .block-container {{
-            padding-top: 2rem !important;
-            padding-left: 1rem !important;
-            padding-right: 1rem !important;
-        }}
-        /* 調整標題大小 */
-        h1 {{
-            font-size: 1.8rem !important;
-        }}
-        /* 隱藏不必要的裝飾邊距 */
-        [data-testid="stVerticalBlock"] {{
-            gap: 0.5rem !important;
-        }}
-    }}
-
-    /* 3. 通用樣式優化 */
-    h3 {{
-        font-size: 1.4rem !important;
+    /* 調整頂部間距 */
+    .block-container {
+        padding-top: 1rem !important;
+    }
+    /* 統一標題大小 */
+    h3 {
+        font-size: 1.5rem !important;
         font-weight: 600 !important;
-        margin-top: 10px !important;
-    }}
-    .stProgress > div > div > div > div {{
-        color: white; /* 進度條文字維持白色 */
-    }}
+    }
+    /* 統一子標題大小 */
+    h4 {
+        font-size: 1.2rem !important;
+        font-weight: 600 !important;
+        color: #555;
+    }
+    /* [修改] 優化進度條文字顯示 (配合深藍色背景，文字維持白色) */
+    .stProgress > div > div > div > div {
+        color: white;
+        font-weight: 500;
+    }
+    /* [新增] Header 灰色小字的樣式 */
+    .header-subtitle {
+        color: gray;
+        font-size: 1.2rem;
+        font-weight: 500;
+        display: flex;
+        height: 100%;
+        align-items: center; /* 垂直居中 */
+        margin-left: -20px; /* 微調與 Logo 的距離 */
+    }
+    /* 手機版調整 */
+    @media (max-width: 640px) {
+        .header-subtitle {
+            font-size: 1rem;
+            margin-left: 0px;
+            margin-top: 10px;
+            justify-content: center; /* 手機上置中 */
+        }
+    }
     </style>
 """, unsafe_allow_html=True)
+
+
+WORK_DIR = "temp_workspace"
+HISTORY_FILE = "job_history.json"
+LOGO_URL = "https://aurotek.com/wp-content/uploads/2025/07/logo.svg"
 
 # ==========================================
 #              Helper Functions
@@ -148,36 +149,42 @@ def validate_jobs(jobs, total_slides):
 #              Core Logic Function
 # ==========================================
 def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
+    # UI 元件準備
     main_progress = st.progress(0, text="準備開始...")
-    status_area = st.empty() 
-    detail_area = st.container() 
+    status_area = st.empty() # 用於顯示當前大步驟文字
+    
+    # [修改] 使用 st.empty() 來建立一個可替換的空間，確保進度條只會更新，不會疊加
+    detail_bar_placeholder = st.empty()
 
     sorted_jobs = sorted(jobs, key=lambda x: x['start'])
     
+    # --- 回調函式 (Callbacks) - 改為呼叫 placeholder.progress ---
     def update_step1(filename, current, total):
         pct = current / total if total > 0 else 0
-        detail_area.progress(pct, text=f"Step 1 詳細進度: 正在上傳 `{filename}` ({int(pct*100)}%)")
+        detail_bar_placeholder.progress(pct, text=f"Step 1 詳細進度: 正在上傳 `{filename}` ({int(pct*100)}%)")
 
     def update_step2(current, total):
         pct = current / total if total > 0 else 0
-        detail_area.progress(pct, text=f"Step 2 詳細進度: 處理投影片 {current}/{total} ({int(pct*100)}%)")
+        detail_bar_placeholder.progress(pct, text=f"Step 2 詳細進度: 處理投影片 {current}/{total} ({int(pct*100)}%)")
 
     def update_step3(current, total):
         pct = current / total if total > 0 else 0
-        detail_area.progress(pct, text=f"Step 3 詳細進度: 處理內部檔案 {current}/{total} ({int(pct*100)}%)")
+        detail_bar_placeholder.progress(pct, text=f"Step 3 詳細進度: 處理內部檔案 {current}/{total} ({int(pct*100)}%)")
 
     def update_step4(filename, current, total):
         pct = current / total if total > 0 else 0
-        detail_area.progress(pct, text=f"Step 4 詳細進度: 正在上傳 `{filename}` ({int(pct*100)}%)")
+        detail_bar_placeholder.progress(pct, text=f"Step 4 詳細進度: 正在上傳 `{filename}` ({int(pct*100)}%)")
 
     def update_step5(current, total):
         pct = current / total if total > 0 else 0
-        detail_area.progress(pct, text=f"Step 5 詳細進度: 優化任務 {current}/{total} ({int(pct*100)}%)")
+        detail_bar_placeholder.progress(pct, text=f"Step 5 詳細進度: 優化任務 {current}/{total} ({int(pct*100)}%)")
     
     def general_log(msg):
         print(f"[Log] {msg}")
 
+    # --- 開始執行 ---
     try:
+        # === Step 1: 提取與上傳影片 ===
         status_area.info("1️⃣ 步驟 1/5：提取 PPT 內影片並上傳至雲端...")
         main_progress.progress(5, text="Step 1: 影片雲端化")
         video_map = bot.extract_and_upload_videos(
@@ -187,8 +194,10 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
             progress_callback=update_step1,
             log_callback=general_log
         )
-        detail_area.empty()
+        # [修改] 每個大步驟完成後，清空詳細進度條的位置
+        detail_bar_placeholder.empty()
         
+        # === Step 2: 置換為圖片連結 ===
         status_area.info("2️⃣ 步驟 2/5：將 PPT 內的影片替換為雲端連結圖片...")
         main_progress.progress(25, text="Step 2: 連結置換")
         mod_path = os.path.join(WORK_DIR, "modified.pptx")
@@ -198,8 +207,9 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
             video_map,
             progress_callback=update_step2
         )
-        detail_area.empty()
+        detail_bar_placeholder.empty()
         
+        # === Step 3: 檔案瘦身 ===
         status_area.info("3️⃣ 步驟 3/5：進行檔案壓縮與瘦身 (提升解析度)...")
         main_progress.progress(45, text="Step 3: 檔案瘦身")
         slim_path = os.path.join(WORK_DIR, "slim.pptx")
@@ -208,8 +218,9 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
             slim_path,
             progress_callback=update_step3
         )
-        detail_area.empty()
+        detail_bar_placeholder.empty()
         
+        # === Step 4: 拆分與上傳 ===
         status_area.info("4️⃣ 步驟 4/5：依設定拆分簡報並上傳至 Google Slides...")
         main_progress.progress(65, text="Step 4: 拆分發布")
         results = bot.split_and_upload(
@@ -219,8 +230,9 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
             progress_callback=update_step4,
             log_callback=general_log
         )
-        detail_area.empty()
+        detail_bar_placeholder.empty()
         
+        # 檢查 Step 4 錯誤
         oversized_errors = [r for r in results if r.get('error_too_large')]
         if oversized_errors:
             st.error("⛔️ 流程終止：偵測到拆分後的檔案過大。")
@@ -229,6 +241,7 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
             st.warning("💡 建議做法：請減少該任務的頁數範圍，將其拆分為多個小任務後重新執行。")
             return
         
+        # === Step 5: 內嵌優化 ===
         status_area.info("5️⃣ 步驟 5/5：優化線上簡報的影片播放器...")
         main_progress.progress(85, text="Step 5: 內嵌優化")
         final_results = bot.embed_videos_in_slides(
@@ -236,8 +249,9 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
             progress_callback=update_step5,
             log_callback=general_log
         )
-        detail_area.empty()
+        detail_bar_placeholder.empty()
         
+        # === Final: 寫入資料庫 ===
         status_area.info("📝 最後步驟：將成果寫入 Google Sheets 資料庫...")
         main_progress.progress(95, text="Final: 寫入資料庫")
         bot.log_to_sheets(
@@ -245,14 +259,17 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
             log_callback=general_log
         )
         
+        # 完成
         main_progress.progress(100, text="🎉 任務全部完成！")
         status_area.success("🎉 所有自動化流程執行完畢！")
         st.balloons()
         
+        # 清理
         if auto_clean:
             cleanup_workspace()
             st.toast("已自動清除暫存檔案。", icon="🧹")
         
+        # 顯示結果
         st.divider()
         st.subheader("✅ 產出結果連結")
         result_count = 0
@@ -273,11 +290,19 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
 # ==========================================
 #              Main UI (Layout)
 # ==========================================
-# [Logo] 直接使用 st.image，CSS 會控制它的大小與響應式
-st.image(LOGO_URL)
+# [修改] Header 區域重構：使用 Columns 將 Logo 與灰色小字並排
+col_logo, col_text = st.columns([1, 2], gap="small")
+with col_logo:
+    # 使用 use_column_width 讓 Logo 盡可能大 (解決第 1 點)
+    st.image(LOGO_URL, use_column_width=True)
+with col_text:
+    # 顯示灰色小字 (解決第 1 點)
+    st.markdown('<div class="header-subtitle">簡報案例自動化發布平台</div>', unsafe_allow_html=True)
 
-st.title("Aurotek數位資料庫 簡報案例自動化發布平台")
-st.info("功能： 上傳PPT → 線上拆分 → 影片雲端化 → 內嵌優化 → 簡報雲端化 → 寫入和椿資料庫")
+# [修改] 移除原本的大標題 (解決第 2 點)
+# st.title("Aurotek數位資料庫 簡報案例自動化發布平台") <- 已移除
+
+st.info("功能說明： 上傳PPT → 線上拆分 → 影片雲端化 → 內嵌優化 → 簡報雲端化 → 寫入和椿資料庫")
 
 if 'split_jobs' not in st.session_state:
     st.session_state.split_jobs = []
@@ -311,13 +336,14 @@ with st.container(border=True):
             saved_jobs = load_history(uploaded_file.name)
             st.session_state.split_jobs = saved_jobs if saved_jobs else []
             
-            progress_text = "解析檔案中..."
-            my_bar = st.progress(0, text=progress_text)
+            # 這裡的進度條也使用 st.empty() 優化
+            progress_placeholder = st.empty()
+            progress_placeholder.progress(0, text="解析檔案中...")
             
             try:
                 with open(source_path, "wb") as f:
                     f.write(uploaded_file.getbuffer())
-                my_bar.progress(40, text="解析內容結構...")
+                progress_placeholder.progress(40, text="解析內容結構...")
                 
                 prs = Presentation(source_path)
                 total_slides = len(prs.slides)
@@ -336,7 +362,7 @@ with st.container(border=True):
                 st.session_state.ppt_meta["preview_data"] = preview_data
                 st.session_state.current_file_name = uploaded_file.name
                 
-                my_bar.progress(100, text="完成！")
+                progress_placeholder.progress(100, text="完成！")
                 st.success(f"✅ 已讀取：{uploaded_file.name} (共 {total_slides} 頁)")
                 
             except Exception as e:
