@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import os
 import uuid
 import json
@@ -7,8 +8,6 @@ import traceback
 import requests
 from pptx import Presentation
 from ppt_processor import PPTAutomationBot
-import streamlit.components.v1 as components
-
 
 # ==========================================
 #              設定頁面與樣式
@@ -24,61 +23,73 @@ WORK_DIR = "temp_workspace"
 HISTORY_FILE = "job_history.json"
 
 # ==========================================
-#              CSS 深度優化
+#              CSS 深度優化（含手機友善瘦身）
 # ==========================================
 st.markdown("""
-    <style>
-    /* 1. 隱藏 Streamlit 預設 Header 與 Toolbar */
-    header[data-testid="stHeader"] {
-        display: none;
-    }
-    .stApp > header {
-        display: none;
-    }
-    
-    /* 2. 調整頂部間距 */
-    .block-container {
-        padding-top: 2rem !important; 
-    }
+<style>
+/* 1. 隱藏 Streamlit 預設 Header 與 Toolbar */
+header[data-testid="stHeader"] { display: none; }
+.stApp > header { display: none; }
 
-    /* 3. 上傳元件中文化 */
-    [data-testid="stFileUploaderDropzoneInstructions"] > div:first-child { visibility: hidden; height: 0; }
-    [data-testid="stFileUploaderDropzoneInstructions"] > div:nth-child(2) { visibility: hidden; height: 0; }
-    [data-testid="stFileUploaderDropzoneInstructions"]::before {
-        content: "請將檔案拖放至此";
-        visibility: visible;
-        display: block;
-        font-size: 1.2rem;
-        font-weight: bold;
-        margin-bottom: 5px;
-    }
-    [data-testid="stFileUploaderDropzoneInstructions"]::after {
-        content: "單一檔案限制 5GB • PPTX";
-        visibility: visible;
-        display: block;
-        font-size: 0.8rem;
-        color: gray;
-    }
-    [data-testid="stFileUploader"] button { color: transparent !important; position: relative; }
-    [data-testid="stFileUploader"] button::after {
-        content: "瀏覽檔案";
-        color: #31333F;
-        position: absolute;
-        left: 50%; top: 50%; transform: translate(-50%, -50%);
-        font-weight: 500;
-    }
+/* 2. 調整頂部間距（整體上移一點，減少留白） */
+.block-container {
+    padding-top: 1.2rem !important;
+    padding-bottom: 1.2rem !important;
+}
 
-    /* 4. 通用樣式與進度條 */
-    h3 { font-size: 1.5rem !important; font-weight: 600 !important; }
-    h4 { font-size: 1.2rem !important; font-weight: 600 !important; color: #555; }
-    .stProgress > div > div > div > div { color: white; font-weight: 500; }
-    
-    /* [新增] 縮小 st.info 功能說明區塊的文字大小 */
-    [data-testid="stAlert"] p {
-        font-size: 0.85rem !important; /* 縮小字體 */
-        line-height: 1.4 !important;
-    }
-    </style>
+/* 3. 上傳元件中文化（瘦身版：更短、更省空間） */
+[data-testid="stFileUploaderDropzoneInstructions"] > div:first-child { display: none !important; }
+[data-testid="stFileUploaderDropzoneInstructions"] > div:nth-child(2) { display: none !important; }
+
+[data-testid="stFileUploaderDropzoneInstructions"]::before {
+    content: "拖放或點擊上傳";
+    display: block;
+    font-size: 0.95rem;
+    font-weight: 700;
+    margin: 0;
+    line-height: 1.2;
+}
+[data-testid="stFileUploaderDropzoneInstructions"]::after {
+    content: "單檔 5GB · PPTX";
+    display: block;
+    font-size: 0.75rem;
+    color: #8a8a8a;
+    margin-top: 2px;
+    line-height: 1.2;
+}
+
+/* 進一步壓縮整個 dropzone 高度 */
+section[data-testid="stFileUploaderDropzone"] {
+    padding: 0.65rem 0.9rem !important;
+}
+
+/* 上傳按鈕中文化 */
+[data-testid="stFileUploader"] button { color: transparent !important; position: relative; }
+[data-testid="stFileUploader"] button::after {
+    content: "瀏覽檔案";
+    color: #31333F;
+    position: absolute;
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    font-weight: 600;
+}
+
+/* 4. 通用樣式與進度條 */
+h3 { font-size: 1.5rem !important; font-weight: 600 !important; }
+h4 { font-size: 1.2rem !important; font-weight: 600 !important; color: #555; }
+.stProgress > div > div > div > div { color: white; font-weight: 500; }
+
+/* 縮小 st.info 功能說明區塊的文字大小 */
+[data-testid="stAlert"] p {
+    font-size: 0.85rem !important;
+    line-height: 1.35 !important;
+}
+
+/* 手機版更緊湊（可選微調） */
+@media (max-width: 768px) {
+    .block-container { padding-top: 0.8rem !important; }
+}
+</style>
 """, unsafe_allow_html=True)
 
 # ==========================================
@@ -147,7 +158,6 @@ def validate_jobs(jobs, total_slides):
     for i in range(len(sorted_jobs) - 1):
         current_job = sorted_jobs[i]
         next_job = sorted_jobs[i+1]
-        
         if current_job['end'] >= next_job['start']:
             conflict_msg = (
                 f"⚠️ 發現頁數重疊！\n"
@@ -175,11 +185,11 @@ def download_file_from_url(url, dest_path):
 # ==========================================
 def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
     main_progress = st.progress(0, text="準備開始...")
-    status_area = st.empty() 
+    status_area = st.empty()
     detail_bar_placeholder = st.empty()
 
     sorted_jobs = sorted(jobs, key=lambda x: x['start'])
-    
+
     def update_step1(filename, current, total):
         pct = current / total if total > 0 else 0
         detail_bar_placeholder.progress(pct, text=f"Step 1 詳細進度: 正在上傳 `{filename}` ({int(pct*100)}%)")
@@ -199,7 +209,7 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
     def update_step5(current, total):
         pct = current / total if total > 0 else 0
         detail_bar_placeholder.progress(pct, text=f"Step 5 詳細進度: 優化任務 {current}/{total} ({int(pct*100)}%)")
-    
+
     def general_log(msg):
         print(f"[Log] {msg}")
 
@@ -207,46 +217,46 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
         status_area.info("1️⃣ 步驟 1/5：提取 PPT 內影片並上傳至雲端...")
         main_progress.progress(5, text="Step 1: 影片雲端化")
         video_map = bot.extract_and_upload_videos(
-            source_path, 
-            os.path.join(WORK_DIR, "media"), 
+            source_path,
+            os.path.join(WORK_DIR, "media"),
             file_prefix=file_prefix,
             progress_callback=update_step1,
             log_callback=general_log
         )
         detail_bar_placeholder.empty()
-        
+
         status_area.info("2️⃣ 步驟 2/5：將 PPT 內的影片替換為雲端連結圖片...")
         main_progress.progress(25, text="Step 2: 連結置換")
         mod_path = os.path.join(WORK_DIR, "modified.pptx")
         bot.replace_videos_with_images(
-            source_path, 
-            mod_path, 
+            source_path,
+            mod_path,
             video_map,
             progress_callback=update_step2
         )
         detail_bar_placeholder.empty()
-        
+
         status_area.info("3️⃣ 步驟 3/5：進行檔案壓縮與瘦身 (提升解析度)...")
         main_progress.progress(45, text="Step 3: 檔案瘦身")
         slim_path = os.path.join(WORK_DIR, "slim.pptx")
         bot.shrink_pptx(
-            mod_path, 
+            mod_path,
             slim_path,
             progress_callback=update_step3
         )
         detail_bar_placeholder.empty()
-        
+
         status_area.info("4️⃣ 步驟 4/5：依設定拆分簡報並上傳至 Google Slides...")
         main_progress.progress(65, text="Step 4: 拆分發布")
         results = bot.split_and_upload(
-            slim_path, 
+            slim_path,
             sorted_jobs,
             file_prefix=file_prefix,
             progress_callback=update_step4,
             log_callback=general_log
         )
         detail_bar_placeholder.empty()
-        
+
         oversized_errors = [r for r in results if r.get('error_too_large')]
         if oversized_errors:
             st.error("⛔️ 流程終止：偵測到拆分後的檔案過大。")
@@ -254,7 +264,7 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
                 st.error(f"❌ 任務「{err_job['filename']}」壓縮後仍有 {err_job['size_mb']:.2f} MB，超過 Google 限制 (100MB)。")
             st.warning("💡 建議做法：請減少該任務的頁數範圍，將其拆分為多個小任務後重新執行。")
             return
-        
+
         status_area.info("5️⃣ 步驟 5/5：優化線上簡報的影片播放器...")
         main_progress.progress(85, text="Step 5: 內嵌優化")
         final_results = bot.embed_videos_in_slides(
@@ -263,22 +273,19 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
             log_callback=general_log
         )
         detail_bar_placeholder.empty()
-        
+
         status_area.info("📝 最後步驟：將成果寫入 Google Sheets 資料庫...")
         main_progress.progress(95, text="Final: 寫入資料庫")
-        bot.log_to_sheets(
-            final_results,
-            log_callback=general_log
-        )
-        
+        bot.log_to_sheets(final_results, log_callback=general_log)
+
         main_progress.progress(100, text="🎉 任務全部完成！")
         status_area.success("🎉 所有自動化流程執行完畢！")
         st.balloons()
-        
+
         if auto_clean:
             cleanup_workspace()
             st.toast("已自動清除暫存檔案。", icon="🧹")
-        
+
         st.divider()
         st.subheader("✅ 產出結果連結")
         result_count = 0
@@ -287,7 +294,7 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
                 result_count += 1
                 display_name = f"[{file_prefix}]_{res['filename']}"
                 st.markdown(f"👉 **{display_name}**: [點擊開啟 Google Slides]({res['final_link']})")
-        
+
         if result_count == 0:
             st.warning("沒有產生任何結果，請檢查是否有任務被跳過。")
 
@@ -300,10 +307,9 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
 #              Main UI (Layout)
 # ==========================================
 
-# 0. 確保工作目錄存在（避免首次使用就寫檔失敗）
 os.makedirs(WORK_DIR, exist_ok=True)
 
-# 1. 設定標題 ✅ Header：LOGO + 副標題（共同置中，寬度 300px）
+# 1) Header：縮小上下留白（桌機/手機都更緊凑）
 components.html(
     f"""
     <div style="
@@ -312,16 +318,17 @@ components.html(
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        margin: 10px 0 10px 0;
+        margin: 4px 0 2px 0;
+        line-height: 1.1;
     ">
         <img src="{LOGO_URL}" alt="Aurotek Logo" style="
             width: 300px;
             height: auto;
             display: block;
-            margin: 0 auto;
+            margin: 0;
         " />
         <div style="
-            margin-top: 6px;
+            margin-top: 4px;
             width: 300px;
             text-align: center;
             color: gray;
@@ -333,10 +340,10 @@ components.html(
         </div>
     </div>
     """,
-    height=120
+    height=78
 )
 
-# 2. 功能說明 (已透過 CSS 將文字縮小)
+# 2. 功能說明（已在 CSS 內縮小字體）
 st.info("功能說明： 上傳PPT → 線上拆分 → 影片雲端化 → 內嵌優化 → 簡報雲端化 → 寫入和椿資料庫")
 
 # 3. 初始化
@@ -361,19 +368,19 @@ if 'ppt_meta' not in st.session_state:
 # 4. 檔案來源選擇區塊
 with st.container(border=True):
     st.subheader("📂 步驟一：選擇檔案來源")
-    
-    input_method = st.radio("請選擇上傳方式：", ["本地檔案上傳", "線上 PPT 網址"], horizontal=True)
-    
+
+    # 3) 文案：請選擇上傳方式 -> 上傳方式
+    # 2) 手機更短：本地檔案 / 線上檔案
+    input_method = st.radio("上傳方式", ["本地檔案", "線上檔案"], horizontal=True)
+
     uploaded_file = None
     source_path = os.path.join(WORK_DIR, "source.pptx")
-    file_name_for_logic = None 
+    file_name_for_logic = None
 
-    if input_method == "本地檔案上傳":
+    if input_method == "本地檔案":
         uploaded_file = st.file_uploader("請選擇 PPTX 檔案", type=['pptx'], label_visibility="collapsed")
         if uploaded_file:
             file_name_for_logic = uploaded_file.name
-            if not os.path.exists(WORK_DIR):
-                os.makedirs(WORK_DIR, exist_ok=True)
             with open(source_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
 
@@ -382,15 +389,13 @@ with st.container(border=True):
         if url_input:
             if not url_input.lower().endswith(".pptx"):
                 st.warning("⚠️ 網址結尾似乎不是 .pptx，請確認網址正確性。")
-            
+
             fake_name = url_input.split("/")[-1].split("?")[0]
             if not fake_name.lower().endswith(".pptx"):
                 fake_name += ".pptx"
-            
+
             if st.button("📥 下載並處理此網址"):
                 with st.spinner("正在從網址下載檔案..."):
-                    if not os.path.exists(WORK_DIR):
-                        os.makedirs(WORK_DIR, exist_ok=True)
                     success, error = download_file_from_url(url_input, source_path)
                     if success:
                         file_name_for_logic = fake_name
@@ -401,19 +406,19 @@ with st.container(border=True):
     # 5. 檔案處理邏輯
     if file_name_for_logic and os.path.exists(source_path):
         file_prefix = os.path.splitext(file_name_for_logic)[0]
-        
+
         if st.session_state.current_file_name != file_name_for_logic:
-            cleanup_workspace() 
+            cleanup_workspace()
             saved_jobs = load_history(file_name_for_logic)
             st.session_state.split_jobs = saved_jobs if saved_jobs else []
-            
+
             progress_placeholder = st.empty()
             progress_placeholder.progress(0, text="解析檔案中...")
-            
+
             try:
                 prs = Presentation(source_path)
                 total_slides = len(prs.slides)
-                
+
                 preview_data = []
                 for i, slide in enumerate(prs.slides):
                     txt = slide.shapes.title.text if (slide.shapes.title and slide.shapes.title.text) else "無標題"
@@ -423,14 +428,14 @@ with st.container(border=True):
                                 txt = s.text.strip()[:20] + "..."
                                 break
                     preview_data.append({"頁碼": i+1, "內容摘要": txt})
-                
+
                 st.session_state.ppt_meta["total_slides"] = total_slides
                 st.session_state.ppt_meta["preview_data"] = preview_data
                 st.session_state.current_file_name = file_name_for_logic
-                
+
                 progress_placeholder.progress(100, text="完成！")
                 st.success(f"✅ 已讀取：{file_name_for_logic} (共 {total_slides} 頁)")
-                
+
             except Exception as e:
                 st.error(f"檔案處理失敗: {e}")
                 st.session_state.current_file_name = None
@@ -456,18 +461,18 @@ if st.session_state.current_file_name:
         for i, job in enumerate(st.session_state.split_jobs):
             with st.container(border=True):
                 st.markdown(f"**📄 任務 {i+1}**")
-                
+
                 c1, c2, c3 = st.columns([3, 1.5, 1.5])
                 job["filename"] = c1.text_input("檔名", value=job["filename"], key=f"f_{job['id']}", placeholder="例如: 清潔案例A")
                 job["start"] = c2.number_input("起始頁", 1, total_slides, job["start"], key=f"s_{job['id']}")
                 job["end"] = c3.number_input("結束頁", 1, total_slides, job["end"], key=f"e_{job['id']}")
-                
+
                 m1, m2, m3, m4 = st.columns(4)
                 job["category"] = m1.selectbox("類型", ["清潔", "配送", "購物", "AURO"], key=f"cat_{job['id']}")
                 job["subcategory"] = m2.text_input("子分類", value=job["subcategory"], key=f"sub_{job['id']}")
                 job["client"] = m3.text_input("客戶", value=job["client"], key=f"cli_{job['id']}")
                 job["keywords"] = m4.text_input("關鍵字", value=job["keywords"], key=f"key_{job['id']}")
-                
+
                 if st.button("🗑️ 刪除此任務", key=f"d_{job['id']}", type="secondary"):
                     remove_split_job(i)
                     st.rerun()
@@ -493,7 +498,7 @@ if st.session_state.current_file_name:
                     if 'bot' not in st.session_state or not st.session_state.bot:
                         st.error("❌ 機器人未初始化 (憑證錯誤)，請檢查 Secrets。")
                         st.stop()
-                    
+
                     execute_automation_logic(
                         st.session_state.bot,
                         os.path.join(WORK_DIR, "source.pptx"),
