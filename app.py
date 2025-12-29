@@ -19,10 +19,12 @@ st.set_page_config(
 # 自定義 CSS 以優化 UI 細節
 st.markdown("""
     <style>
-    /* 1. 調整頂部間距與字體優化 */
+    /* 1. 調整頂部間距 */
     .block-container {
         padding-top: 3rem !important; 
     }
+    
+    /* 2. 統一標題與文字大小 */
     h3 {
         font-size: 1.5rem !important;
         font-weight: 600 !important;
@@ -32,49 +34,26 @@ st.markdown("""
         font-weight: 600 !important;
         color: #555;
     }
+    
+    /* 3. 進度條文字顏色 */
     .stProgress > div > div > div > div {
         color: white;
         font-weight: 500;
     }
 
-    /* 2. Logo 大小控制 */
-    /* [修改] 只控制圖片本體大小，置中交給外層 Columns 處理 */
-    [data-testid="stImage"] img {
-        width: 300px !important; /* 設定合適寬度 */
-        max-width: 100% !important;
-        object-fit: contain !important;
-        /* 確保圖片本身在容器內也是置中的 (雙重保險) */
-        margin-left: auto;
-        margin-right: auto;
-        display: block;
-    }
-    
-    /* 3. 標題與說明文字樣式 */
+    /* 4. 副標題樣式 (配合 HTML 結構) */
     .header-subtitle {
         color: gray;
         font-size: 1.2rem;
         font-weight: 500;
-        text-align: center; /* 文字置中 */
         margin-top: 10px;
-        margin-bottom: 30px; /* 增加下方空行 */
-        display: block;
+        letter-spacing: 1px;
     }
 
-    /* 4. 縮小功能說明區塊文字 */
+    /* 5. 縮小功能說明區塊文字 */
     .stAlert p {
-        font-size: 0.9rem !important; /* 縮小字體 */
+        font-size: 0.9rem !important;
         line-height: 1.4 !important;
-    }
-
-    /* 手機版調整 */
-    @media (max-width: 640px) {
-        .header-subtitle {
-            font-size: 1rem;
-            margin-bottom: 20px;
-        }
-        [data-testid="stImage"] img {
-            width: 200px !important; /* 手機上稍微縮小 */
-        }
     }
     </style>
 """, unsafe_allow_html=True)
@@ -292,15 +271,14 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
 # ==========================================
 #              Main UI (Layout)
 # ==========================================
-# [新增] 使用 Columns 強制置中 Logo 與標題
-# 比例 [1, 2, 1] 代表中間欄位佔據一半寬度，左右留白
-col_pad1, col_center, col_pad2 = st.columns([1, 2, 1])
 
-with col_center:
-    # use_column_width=True 會讓圖片撐滿這個中間欄位
-    # CSS 會限制它的最大寬度為 300px，從而達到置中效果
-    st.image(LOGO_URL, use_column_width=True)
-    st.markdown('<div class="header-subtitle">簡報案例自動化發布平台</div>', unsafe_allow_html=True)
+# [修正] 改用 HTML 容器包裹 Logo 與標題，確保絕對置中
+st.markdown(f"""
+    <div style="text-align: center; padding-bottom: 20px;">
+        <img src="{LOGO_URL}" style="width: 300px; max-width: 80%; height: auto; margin-bottom: 5px;">
+        <div class="header-subtitle">簡報案例自動化發布平台</div>
+    </div>
+""", unsafe_allow_html=True)
 
 # 功能說明
 st.info("功能說明： 上傳PPT → 線上拆分 → 影片雲端化 → 內嵌優化 → 簡報雲端化 → 寫入和椿資料庫")
