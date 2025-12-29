@@ -303,7 +303,7 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
 # 0. 確保工作目錄存在（避免首次使用就寫檔失敗）
 os.makedirs(WORK_DIR, exist_ok=True)
 
-# ✅ Header：LOGO + 副標題（共同置中，寬度 300px）
+# 1. 設定標題 ✅ Header：LOGO + 副標題（共同置中，寬度 300px）
 components.html(
     f"""
     <div style="
