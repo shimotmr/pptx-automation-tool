@@ -16,15 +16,19 @@ st.set_page_config(
     layout="wide"
 )
 
+LOGO_URL = "https://aurotek.com/wp-content/uploads/2025/07/logo.svg"
+WORK_DIR = "temp_workspace"
+HISTORY_FILE = "job_history.json"
+
 # 自定義 CSS 以優化 UI 細節
 st.markdown("""
     <style>
-    /* 1. 調整頂部間距 */
+    /* 1. 調整頂部間距 (稍微縮小一點，讓 header 更緊湊) */
     .block-container {
-        padding-top: 3rem !important; 
+        padding-top: 2rem !important; 
     }
     
-    /* 2. 統一標題與文字大小 */
+    /* 2. 標題與文字大小 */
     h3 {
         font-size: 1.5rem !important;
         font-weight: 600 !important;
@@ -41,27 +45,13 @@ st.markdown("""
         font-weight: 500;
     }
 
-    /* 4. 副標題樣式 */
-    .header-subtitle {
-        color: gray;
-        font-size: 1.2rem;
-        font-weight: 500;
-        margin-top: 5px; /* 縮小與 Logo 的間距 */
-        letter-spacing: 1px;
-    }
-
-    /* 5. 縮小功能說明區塊文字 */
+    /* 4. 縮小功能說明區塊文字 */
     .stAlert p {
         font-size: 0.9rem !important;
         line-height: 1.4 !important;
     }
     </style>
 """, unsafe_allow_html=True)
-
-
-WORK_DIR = "temp_workspace"
-HISTORY_FILE = "job_history.json"
-LOGO_URL = "https://aurotek.com/wp-content/uploads/2025/07/logo.svg"
 
 # ==========================================
 #              Helper Functions
@@ -272,13 +262,16 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
 #              Main UI (Layout)
 # ==========================================
 
-# [修正] 將寬度激增至 700px 以抵銷 SVG 原圖的留白，同時設定 max-width 為 95% 避免手機版超出螢幕
+# [最終修改] 改用 Flexbox 容器控制，這能確保最完美的置中與縮放
+# width: 600px; 是一個足夠大的數值，能強迫 SVG 顯示出內部細節
 st.markdown(f"""
-    <div style="text-align: center; padding-bottom: 20px;">
-        <img src="{LOGO_URL}" style="width: 700px !important; max-width: 95% !important; height: auto; margin-bottom: 5px;">
-        <div class="header-subtitle">簡報案例自動化發布平台</div>
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center;">
+        <img src="{LOGO_URL}" style="width: 600px; max-width: 90vw; height: auto; object-fit: contain;">
+        <div style="color: gray; font-size: 1.2rem; font-weight: 500; margin-top: 15px; letter-spacing: 1px;">
+            簡報案例自動化發布平台
+        </div>
     </div>
-""", unsafe_allow_html=True)
+    <div style="height: 30px;"></div> """, unsafe_allow_html=True)
 
 # 功能說明
 st.info("功能說明： 上傳PPT → 線上拆分 → 影片雲端化 → 內嵌優化 → 簡報雲端化 → 寫入和椿資料庫")
