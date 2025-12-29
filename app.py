@@ -4,7 +4,7 @@ import uuid
 import json
 import shutil
 import traceback
-import requests  # 新增：用於下載網路檔案
+import requests
 from pptx import Presentation
 from ppt_processor import PPTAutomationBot
 
@@ -26,8 +26,7 @@ HISTORY_FILE = "job_history.json"
 # ==========================================
 st.markdown("""
     <style>
-    /* 1. 【核心修正】隱藏 Streamlit 預設 Header 與 Toolbar */
-    /* 這是讓 Logo 能置頂且不被切到的關鍵 */
+    /* 1. 隱藏 Streamlit 預設 Header 與 Toolbar */
     header[data-testid="stHeader"] {
         display: none;
     }
@@ -35,38 +34,29 @@ st.markdown("""
         display: none;
     }
     
-    /* 2. 調整頂部間距 (因為 Header 沒了，可以把內容往上拉) */
+    /* 2. 調整頂部間距 */
     .block-container {
         padding-top: 1rem !important; 
     }
 
-    /* 3. Logo 容器樣式 */
+    /* 3. [修正] Logo 樣式：改用 block 佈局 + margin auto 置中，並加大寬度 */
     .logo-container {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
+        width: 100%;
+        text-align: center; /* 傳統置中法，容錯率高 */
         margin-bottom: 20px;
-        padding-top: 20px;
+        padding-top: 10px;
     }
     .logo-img {
-        width: 600px !important; /* 強制設定寬度 */
-        max-width: 90vw !important; /* 手機版不超出版面 */
+        /* 設定為 800px，確保夠大 (原 600px 可能因 SVG 留白看起來太小) */
+        width: 800px !important; 
+        max-width: 95vw !important; /* 確保手機版不會超出螢幕 */
         height: auto;
-        object-fit: contain;
+        display: inline-block; /* 配合 text-align center 使用 */
     }
     
-    /* 4. 上傳元件中文化 (CSS Hack) */
-    /* 隱藏原始英文文字 */
-    [data-testid="stFileUploaderDropzoneInstructions"] > div:first-child {
-        visibility: hidden;
-        height: 0;
-    }
-    [data-testid="stFileUploaderDropzoneInstructions"] > div:nth-child(2) {
-        visibility: hidden;
-        height: 0;
-    }
-    /* 插入中文文字 */
+    /* 4. 上傳元件中文化 */
+    [data-testid="stFileUploaderDropzoneInstructions"] > div:first-child { visibility: hidden; height: 0; }
+    [data-testid="stFileUploaderDropzoneInstructions"] > div:nth-child(2) { visibility: hidden; height: 0; }
     [data-testid="stFileUploaderDropzoneInstructions"]::before {
         content: "請將檔案拖放至此";
         visibility: visible;
@@ -82,18 +72,12 @@ st.markdown("""
         font-size: 0.8rem;
         color: gray;
     }
-    /* 修改按鈕文字 */
-    [data-testid="stFileUploader"] button {
-        color: transparent !important; /* 隱藏原本的 Browse files */
-        position: relative;
-    }
+    [data-testid="stFileUploader"] button { color: transparent !important; position: relative; }
     [data-testid="stFileUploader"] button::after {
         content: "瀏覽檔案";
-        color: #31333F; /* 恢復文字顏色 */
+        color: #31333F;
         position: absolute;
-        left: 50%;
-        top: 50%;
-        transform: translate(-50%, -50%);
+        left: 50%; top: 50%; transform: translate(-50%, -50%);
         font-weight: 500;
     }
 
@@ -102,7 +86,7 @@ st.markdown("""
     h4 { font-size: 1.2rem !important; font-weight: 600 !important; color: #555; }
     .stProgress > div > div > div > div { color: white; font-weight: 500; }
     .header-subtitle {
-        color: gray; font-size: 1.3rem; font-weight: 500; margin-top: 15px; letter-spacing: 2px;
+        color: gray; font-size: 1.3rem; font-weight: 500; margin-top: 10px; letter-spacing: 2px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -185,7 +169,6 @@ def validate_jobs(jobs, total_slides):
 
     return errors
 
-# [新增] 下載網址檔案的功能
 def download_file_from_url(url, dest_path):
     try:
         response = requests.get(url, stream=True)
@@ -328,6 +311,7 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
 # ==========================================
 
 # 1. Header (Logo + Title)
+# 使用最單純的 HTML div + text-align center，這最不容易受 flexbox 限制
 st.markdown(f"""
     <div class="logo-container">
         <img src="{LOGO_URL}" class="logo-img">
@@ -361,18 +345,16 @@ if 'ppt_meta' not in st.session_state:
 with st.container(border=True):
     st.subheader("📂 步驟一：選擇檔案來源")
     
-    # [新增] 頁籤切換輸入模式
     input_method = st.radio("請選擇上傳方式：", ["本地檔案上傳", "線上 PPT 網址"], horizontal=True)
     
     uploaded_file = None
     source_path = os.path.join(WORK_DIR, "source.pptx")
-    file_name_for_logic = None # 用於邏輯判斷的檔名
+    file_name_for_logic = None 
 
     if input_method == "本地檔案上傳":
         uploaded_file = st.file_uploader("請選擇 PPTX 檔案", type=['pptx'], label_visibility="collapsed")
         if uploaded_file:
             file_name_for_logic = uploaded_file.name
-            # 寫入暫存
             if not os.path.exists(WORK_DIR): os.makedirs(WORK_DIR)
             with open(source_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
@@ -383,11 +365,9 @@ with st.container(border=True):
             if not url_input.lower().endswith(".pptx"):
                 st.warning("⚠️ 網址結尾似乎不是 .pptx，請確認網址正確性。")
             
-            # 模擬一個檔名 (從網址擷取)
             fake_name = url_input.split("/")[-1].split("?")[0]
             if not fake_name.lower().endswith(".pptx"): fake_name += ".pptx"
             
-            # 下載按鈕 (避免每次輸入都重新下載)
             if st.button("📥 下載並處理此網址"):
                 with st.spinner("正在從網址下載檔案..."):
                     if not os.path.exists(WORK_DIR): os.makedirs(WORK_DIR)
@@ -398,18 +378,12 @@ with st.container(border=True):
                     else:
                         st.error(f"下載失敗: {error}")
 
-    # 5. 檔案處理邏輯 (共用)
+    # 5. 檔案處理邏輯
     if file_name_for_logic and os.path.exists(source_path):
         file_prefix = os.path.splitext(file_name_for_logic)[0]
         
-        # 判斷是否為新檔案 (需要重新解析)
         if st.session_state.current_file_name != file_name_for_logic:
-            cleanup_workspace() # 清除舊資料，保留 source.pptx (因為剛剛才寫入)
-            # 重新確保 source.pptx 存在 (cleanup 可能會刪除它，需注意流程)
-            # 優化：cleanup 不刪除 source.pptx，或者重新寫入。
-            # 這裡簡化：如果換檔，先清除除了 source.pptx 以外的東西，或乾脆全部重來。
-            # 為保險起見，我們假設上面的寫入操作是最新的。
-            
+            cleanup_workspace() 
             saved_jobs = load_history(file_name_for_logic)
             st.session_state.split_jobs = saved_jobs if saved_jobs else []
             
@@ -417,7 +391,6 @@ with st.container(border=True):
             progress_placeholder.progress(0, text="解析檔案中...")
             
             try:
-                # 解析 PPT
                 prs = Presentation(source_path)
                 total_slides = len(prs.slides)
                 
