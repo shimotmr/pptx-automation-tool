@@ -1,11 +1,16 @@
 import streamlit as st
 import streamlit.components.v1 as components
-import os, uuid, json, shutil, traceback, requests
+import os
+import uuid
+import json
+import shutil
+import traceback
+import requests
 from pptx import Presentation
 from ppt_processor import PPTAutomationBot
 
 # =========================================================
-# Page Config
+# 基本設定
 # =========================================================
 st.set_page_config(
     page_title="Aurotek｜簡報案例自動化發布平台",
@@ -18,106 +23,72 @@ WORK_DIR = "temp_workspace"
 HISTORY_FILE = "job_history.json"
 
 # =========================================================
-# Global CSS（企業版、不影響功能）
+# 工具函式
 # =========================================================
-st.markdown("""
-<style>
-header[data-testid="stHeader"], .stApp > header { display:none; }
+def ensure_workspace():
+    os.makedirs(WORK_DIR, exist_ok=True)
 
-.block-container{
-  padding-top:0.8rem !important;
-  padding-bottom:1.0rem !important;
-}
+def cleanup_workspace():
+    if os.path.exists(WORK_DIR):
+        shutil.rmtree(WORK_DIR, ignore_errors=True)
+    os.makedirs(WORK_DIR, exist_ok=True)
 
-:root{
-  --brand:#0B4F8A;
-  --brand-soft:#EAF3FF;
-  --border:#E5E7EB;
-  --muted:#6B7280;
-  --bg:#F8FAFC;
-}
+def detect_resume_step():
+    """
+    斷點續傳判斷：
+    1 = 從頭
+    2 = 已有 source.pptx
+    3 = 已有 modified.pptx
+    4 = 已有 slim.pptx
+    """
+    if os.path.exists(os.path.join(WORK_DIR, "slim.pptx")):
+        return 4
+    if os.path.exists(os.path.join(WORK_DIR, "modified.pptx")):
+        return 3
+    if os.path.exists(os.path.join(WORK_DIR, "source.pptx")):
+        return 2
+    return 1
 
-h3{font-size:1.35rem!important;font-weight:700!important;}
-h4{font-size:1.05rem!important;font-weight:650!important;}
+def load_history(filename):
+    if not os.path.exists(HISTORY_FILE):
+        return []
+    try:
+        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get(filename, [])
+    except:
+        return []
 
-.callout{
-  border:1px solid var(--border);
-  border-radius:14px;
-  padding:12px 14px;
-  margin:10px 0;
-  background:#fff;
-}
-.callout.blue{
-  border-left:4px solid var(--brand);
-  background:var(--brand-soft);
-  color:var(--brand);
-  font-weight:650;
-}
-.callout.err{
-  border-left:4px solid #B91C1C;
-  background:#FEF2F2;
-  color:#991B1B;
-  font-weight:650;
-}
+def save_history(filename, jobs):
+    data = {}
+    if os.path.exists(HISTORY_FILE):
+        try:
+            with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except:
+            data = {}
+    data[filename] = jobs
+    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
-.section-card{
-  border:1px solid var(--border);
-  border-radius:16px;
-  padding:14px 14px 6px 14px;
-  background:#fff;
-}
-
-/* ---------- FileUploader 修正 ---------- */
-[data-testid="stFileUploaderDropzoneInstructions"] > div{display:none!important;}
-[data-testid="stFileUploaderDropzoneInstructions"]::before{
-  content:"拖放或點擊上傳";
-  font-weight:700;
-  font-size:0.95rem;
-}
-[data-testid="stFileUploaderDropzoneInstructions"]::after{
-  content:"PPTX · 單檔 5GB";
-  font-size:0.75rem;
-  color:var(--muted);
-}
-
-section[data-testid="stFileUploaderDropzone"]{
-  padding:0.6rem 0.9rem!important;
-  background:var(--bg)!important;
-  border-radius:14px!important;
-}
-
-section[data-testid="stFileUploaderDropzone"] button{
-  font-size:0!important;
-}
-section[data-testid="stFileUploaderDropzone"] button::after{
-  content:"瀏覽檔案";
-  font-size:0.95rem;
-  font-weight:700;
-}
-
-div[data-testid="stFileUploader"] section:not([data-testid="stFileUploaderDropzone"]) button{
-  display:none!important;
-}
-</style>
-""", unsafe_allow_html=True)
+def reset_to_step1():
+    for k in [
+        "current_file_name",
+        "ppt_meta",
+        "split_jobs",
+    ]:
+        if k in st.session_state:
+            del st.session_state[k]
+    cleanup_workspace()
+    st.rerun()
 
 # =========================================================
-# Header（HTML Component，LOGO 鎖死 300px）
+# Header（HTML，LOGO 鎖 300px）
 # =========================================================
 components.html(f"""
-<div style="
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  justify-content:center;
-  margin-bottom:10px;">
+<div style="display:flex;flex-direction:column;align-items:center;margin-bottom:6px;">
   <img id="auro-logo" src="{LOGO_URL}" style="width:300px;max-width:90vw;height:auto;" />
-  <div style="
-    margin-top:4px;
-    font-size:1rem;
-    font-weight:600;
-    letter-spacing:2px;
-    color:#6B7280;">
+  <div style="margin-top:4px;font-size:1rem;font-weight:600;letter-spacing:2px;color:#6B7280;">
     簡報案例自動化發布平台
   </div>
 </div>
@@ -129,163 +100,152 @@ components.html(f"""
 </style>
 """, height=120)
 
-
 st.markdown("""
-<div class="callout blue">
-功能說明：上傳簡報 → 拆分任務 → 影片雲端化 → 內嵌優化 → Google Slides 發布 → 寫入和椿資料庫
+<div style="background:#EAF3FF;border-left:4px solid #0B4F8A;
+padding:12px 14px;border-radius:12px;font-weight:600;color:#0B4F8A;">
+功能說明：上傳簡報 → 拆分任務 → 影片雲端化 → 內嵌優化 → Google Slides 發布 → 寫入資料庫
 </div>
 """, unsafe_allow_html=True)
 
 # =========================================================
-# Helpers
-# =========================================================
-def ensure_workspace():
-    os.makedirs(WORK_DIR, exist_ok=True)
-
-def cleanup_workspace():
-    if os.path.exists(WORK_DIR):
-        shutil.rmtree(WORK_DIR)
-    os.makedirs(WORK_DIR, exist_ok=True)
-
-def reset_all():
-    for k in list(st.session_state.keys()):
-        del st.session_state[k]
-    cleanup_workspace()
-    st.rerun()
-
-def load_history(fn):
-    if os.path.exists(HISTORY_FILE):
-        with open(HISTORY_FILE,"r",encoding="utf-8") as f:
-            return json.load(f).get(fn,[])
-    return []
-
-def save_history(fn,jobs):
-    data={}
-    if os.path.exists(HISTORY_FILE):
-        with open(HISTORY_FILE,"r",encoding="utf-8") as f:
-            data=json.load(f)
-    data[fn]=jobs
-    with open(HISTORY_FILE,"w",encoding="utf-8") as f:
-        json.dump(data,f,ensure_ascii=False,indent=2)
-
-def add_job(total):
-    st.session_state.split_jobs.insert(0,{
-        "id":str(uuid.uuid4())[:8],
-        "filename":"",
-        "start":1,
-        "end":total,
-        "category":"清潔",
-        "subcategory":"",
-        "client":"",
-        "keywords":""
-    })
-
-def validate_jobs(jobs,total):
-    errs=[]
-    for j in jobs:
-        if not j["filename"].strip():
-            errs.append("檔名不可為空")
-        if j["start"]>j["end"]:
-            errs.append("起始頁不可大於結束頁")
-        if j["end"]>total:
-            errs.append("頁數超出範圍")
-    return errs
-
-# =========================================================
-# Init
+# 初始化狀態
 # =========================================================
 ensure_workspace()
-if "bot" not in st.session_state:
-    st.session_state.bot=PPTAutomationBot()
 
 if "split_jobs" not in st.session_state:
-    st.session_state.split_jobs=[]
+    st.session_state.split_jobs = []
+
 if "ppt_meta" not in st.session_state:
-    st.session_state.ppt_meta={"total":0,"preview":[]}
-if "current_file" not in st.session_state:
-    st.session_state.current_file=None
+    st.session_state.ppt_meta = {"total_slides": 0, "preview_data": []}
+
+if "current_file_name" not in st.session_state:
+    st.session_state.current_file_name = None
+
+if "bot" not in st.session_state:
+    st.session_state.bot = PPTAutomationBot()
 
 # =========================================================
-# Step 1
+# Step 1：選擇檔案
 # =========================================================
-with st.container():
-    st.markdown("<div class='section-card'>",unsafe_allow_html=True)
-    st.subheader("步驟一：選擇檔案來源")
+st.subheader("步驟一：選擇檔案來源")
+uploaded = st.file_uploader("PPTX", type=["pptx"])
 
-    method=st.radio("上傳方式",["本地檔案","線上檔案"],horizontal=True)
-    source_path=os.path.join(WORK_DIR,"source.pptx")
-    file_name=None
+source_path = os.path.join(WORK_DIR, "source.pptx")
 
-    if method=="本地檔案":
-        f=st.file_uploader("pptx",type=["pptx"],label_visibility="collapsed")
-        if f:
-            file_name=f.name
-            if st.session_state.current_file!=file_name:
-                cleanup_workspace()
-            with open(source_path,"wb") as out:
-                out.write(f.getbuffer())
+if uploaded:
+    filename = uploaded.name
 
-    if file_name and os.path.exists(source_path):
-        if st.session_state.current_file!=file_name:
-            prs=Presentation(source_path)
-            preview=[]
-            for i,s in enumerate(prs.slides):
-                t=s.shapes.title.text if s.shapes.title else "無標題"
-                preview.append({"頁":i+1,"標題":t})
-            st.session_state.current_file=file_name
-            st.session_state.ppt_meta={"total":len(prs.slides),"preview":preview}
-            st.session_state.split_jobs=load_history(file_name)
-            st.markdown(f"<div class='callout blue'>已載入 {file_name}（{len(prs.slides)} 頁）</div>",unsafe_allow_html=True)
+    # 同檔名 → 保留拆分任務
+    if st.session_state.current_file_name != filename:
+        cleanup_workspace()
+        st.session_state.split_jobs = load_history(filename)
 
-    st.markdown("</div>",unsafe_allow_html=True)
+    with open(source_path, "wb") as f:
+        f.write(uploaded.getbuffer())
+
+    st.session_state.current_file_name = filename
+
+    # 解析簡報
+    prs = Presentation(source_path)
+    preview = []
+    for i, slide in enumerate(prs.slides):
+        title = slide.shapes.title.text if slide.shapes.title else "無標題"
+        preview.append({"頁碼": i + 1, "內容摘要": title})
+
+    st.session_state.ppt_meta = {
+        "total_slides": len(prs.slides),
+        "preview_data": preview
+    }
+
+    st.success(f"已讀取 {filename}（共 {len(prs.slides)} 頁）")
 
 # =========================================================
-# Step 2
+# Step 2：拆分任務
 # =========================================================
-if st.session_state.current_file:
+if st.session_state.current_file_name:
+    st.subheader("步驟二：設定拆分任務")
+
     with st.expander("頁碼對照表"):
-        st.dataframe(st.session_state.ppt_meta["preview"],use_container_width=True)
+        st.dataframe(st.session_state.ppt_meta["preview_data"], use_container_width=True)
 
-    with st.container():
-        st.markdown("<div class='section-card'>",unsafe_allow_html=True)
-        st.subheader("步驟二：設定拆分任務")
+    if st.button("新增任務"):
+        st.session_state.split_jobs.append({
+            "id": str(uuid.uuid4()),
+            "filename": "",
+            "start": 1,
+            "end": st.session_state.ppt_meta["total_slides"],
+            "category": "清潔",
+            "subcategory": "",
+            "client": "",
+            "keywords": ""
+        })
 
-        if st.button("新增任務"):
-            add_job(st.session_state.ppt_meta["total"])
+    for i, job in enumerate(st.session_state.split_jobs):
+        with st.container(border=True):
+            c1, c2, c3 = st.columns([3, 1, 1])
+            job["filename"] = c1.text_input("檔名", job["filename"], key=f"f{i}")
+            job["start"] = c2.number_input("起始頁", 1, st.session_state.ppt_meta["total_slides"], job["start"], key=f"s{i}")
+            job["end"] = c3.number_input("結束頁", 1, st.session_state.ppt_meta["total_slides"], job["end"], key=f"e{i}")
 
-        for i,j in enumerate(st.session_state.split_jobs):
-            with st.container(border=True):
-                j["filename"]=st.text_input("檔名",j["filename"],key=f"f{i}")
-                c1,c2=st.columns(2)
-                j["start"]=c1.number_input("起始頁",1,st.session_state.ppt_meta["total"],j["start"],key=f"s{i}")
-                j["end"]=c2.number_input("結束頁",1,st.session_state.ppt_meta["total"],j["end"],key=f"e{i}")
+            m1, m2, m3, m4 = st.columns(4)
+            job["category"] = m1.selectbox("類型", ["清潔", "配送", "購物", "AURO"], index=0, key=f"c{i}")
+            job["subcategory"] = m2.text_input("子分類", job["subcategory"], key=f"sc{i}")
+            job["client"] = m3.text_input("客戶", job["client"], key=f"cl{i}")
+            job["keywords"] = m4.text_input("關鍵字", job["keywords"], key=f"k{i}")
 
-                m1,m2,m3,m4=st.columns(4)
-                j["category"]=m1.text_input("類型",j["category"],key=f"c{i}")
-                j["subcategory"]=m2.text_input("子分類",j["subcategory"],key=f"sc{i}")
-                j["client"]=m3.text_input("客戶",j["client"],key=f"cl{i}")
-                j["keywords"]=m4.text_input("關鍵字",j["keywords"],key=f"k{i}")
-
-        save_history(st.session_state.current_file,st.session_state.split_jobs)
-        st.markdown("</div>",unsafe_allow_html=True)
+    save_history(st.session_state.current_file_name, st.session_state.split_jobs)
 
 # =========================================================
-# Step 3
+# Step 3：執行（含斷點續傳）
 # =========================================================
-if st.session_state.current_file:
-    with st.container():
-        st.markdown("<div class='section-card'>",unsafe_allow_html=True)
-        st.subheader("步驟三：開始執行")
+if st.session_state.current_file_name and st.session_state.split_jobs:
+    st.subheader("步驟三：開始執行")
 
-        if st.button("執行自動化排程",use_container_width=True):
-            errs=validate_jobs(
+    resume_step = detect_resume_step()
+    st.info(f"偵測到可從步驟 {resume_step} 繼續執行")
+
+    if st.button("執行自動化排程", use_container_width=True):
+        bot = st.session_state.bot
+        progress = st.progress(0)
+
+        try:
+            # Step 1
+            if resume_step <= 1:
+                progress.progress(10)
+                bot.extract_and_upload_videos(source_path, os.path.join(WORK_DIR, "media"))
+
+            # Step 2
+            mod_path = os.path.join(WORK_DIR, "modified.pptx")
+            if resume_step <= 2 or not os.path.exists(mod_path):
+                progress.progress(30)
+                bot.replace_videos_with_images(source_path, mod_path)
+
+            # Step 3
+            slim_path = os.path.join(WORK_DIR, "slim.pptx")
+            if resume_step <= 3 or not os.path.exists(slim_path):
+                progress.progress(50)
+                bot.shrink_pptx(mod_path, slim_path)
+
+            # Step 4
+            progress.progress(70)
+            results = bot.split_and_upload(
+                slim_path,
                 st.session_state.split_jobs,
-                st.session_state.ppt_meta["total"]
+                file_prefix=os.path.splitext(st.session_state.current_file_name)[0]
             )
-            if errs:
-                for e in errs:
-                    st.error(e)
-            else:
-                st.info("開始執行流程…")
-                # 這裡呼叫你既有的 execute_automation_logic（未刪）
-        st.markdown("</div>",unsafe_allow_html=True)
+
+            # Step 5
+            progress.progress(90)
+            final = bot.embed_videos_in_slides(results)
+
+            bot.log_to_sheets(final)
+            progress.progress(100)
+
+            st.success("所有自動化流程執行完成")
+
+            if st.button("返回並處理新檔"):
+                reset_to_step1()
+
+        except Exception as e:
+            st.error(f"流程中斷：{e}")
+            st.code(traceback.format_exc())
