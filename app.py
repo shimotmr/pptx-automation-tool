@@ -26,7 +26,7 @@ HISTORY_FILE = "job_history.json"
 # ==========================================
 st.markdown("""
     <style>
-    /* 1. 隱藏頂部 Toolbar (保留這個設定，讓畫面更乾淨) */
+    /* 1. 隱藏頂部 Toolbar */
     header[data-testid="stHeader"] {
         display: none;
     }
@@ -39,7 +39,7 @@ st.markdown("""
         padding-top: 2rem !important; 
     }
 
-    /* 3. 上傳元件中文化 (保留這個好用的 Hack) */
+    /* 3. 上傳元件中文化 */
     [data-testid="stFileUploaderDropzoneInstructions"] > div:first-child { visibility: hidden; height: 0; }
     [data-testid="stFileUploaderDropzoneInstructions"] > div:nth-child(2) { visibility: hidden; height: 0; }
     [data-testid="stFileUploaderDropzoneInstructions"]::before {
@@ -290,12 +290,11 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
 #              Main UI (Layout)
 # ==========================================
 
-# 1. Header: 回歸最原始的 st.image 用法
-# 使用 columns 稍微置中 (左1 : 中4 : 右1)，讓圖片有足夠空間展開
-# width=600 會強制圖片寬度，這裡沒有任何 CSS 會阻擋它
+# 1. Header: 使用 columns 置中，並將寬度調整為 450px (約 150% 大小)
 c_pad1, c_logo, c_pad2 = st.columns([1, 4, 1])
 with c_logo:
-    st.image(LOGO_URL, width=600)
+    # [修正] 將寬度從 600 改為 450
+    st.image(LOGO_URL, width=450)
     st.markdown("<h3 style='text-align: left; color: gray; margin-top: -10px;'>簡報案例自動化發布平台</h3>", unsafe_allow_html=True)
 
 # 2. 功能說明
