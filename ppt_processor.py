@@ -1,3 +1,4 @@
+import streamlit as st  # 記得在檔案最上方加上這行
 import os
 import zipfile
 import json
@@ -210,17 +211,34 @@ class PPTAutomationBot:
 
     def _get_credentials(self):
         creds = None
-        if os.path.exists("token.json"):
-            creds = Credentials.from_authorized_user_file("token.json", SCOPES)
+
+        # 1. 優先嘗試從 Streamlit Cloud 的 Secrets 讀取
+        if "google_token" in st.secrets:
+            try:
+                # 從雲端 Secrets 讀取 Token 字串並轉回物件
+                token_info = json.loads(st.secrets["google_token"])
+                creds = Credentials.from_authorized_user_info(token_info, SCOPES)
+            except Exception as e:
+                print(f"雲端 Token 讀取失敗: {e}")
+
+        # 2. 如果雲端讀不到，才嘗試讀取本機檔案 (開發用)
+        if not creds and os.path.exists('token.json'):
+            creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+
+        # 3. 驗證與重新整理 (Refresh)
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            else:
-                flow = InstalledAppFlow.from_client_secrets_file("credentials.json", SCOPES)
-                creds = flow.run_local_server(port=0)
-            with open("token.json", "w") as token:
-                token.write(creds.to_json())
-        return creds
+                try:
+                    creds.refresh(Request())
+                except Exception as e:
+                    st.error(f"Token 過期且無法自動刷新，請重新生成 token.json: {e}")
+            return None
+        
+        else:
+            # 在雲端上無法彈出瀏覽器，所以如果沒 Token 就只能報錯
+            st.error("找不到有效的憑證，請確認已設定 Streamlit Secrets。")
+            return None
+            return creds
 
     def get_user_email(self):
         try:
