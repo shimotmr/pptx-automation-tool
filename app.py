@@ -41,12 +41,12 @@ st.markdown("""
         font-weight: 500;
     }
 
-    /* 4. 副標題樣式 (配合 HTML 結構) */
+    /* 4. 副標題樣式 */
     .header-subtitle {
         color: gray;
         font-size: 1.2rem;
         font-weight: 500;
-        margin-top: 10px;
+        margin-top: 5px; /* 縮小與 Logo 的間距 */
         letter-spacing: 1px;
     }
 
@@ -272,10 +272,10 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
 #              Main UI (Layout)
 # ==========================================
 
-# [修正] 調整 Logo 寬度為 450px (原 300px 的 1.5 倍)
+# [修正] 將寬度激增至 700px 以抵銷 SVG 原圖的留白，同時設定 max-width 為 95% 避免手機版超出螢幕
 st.markdown(f"""
     <div style="text-align: center; padding-bottom: 20px;">
-        <img src="{LOGO_URL}" style="width: 450px; max-width: 90%; height: auto; margin-bottom: 10px;">
+        <img src="{LOGO_URL}" style="width: 700px !important; max-width: 95% !important; height: auto; margin-bottom: 5px;">
         <div class="header-subtitle">簡報案例自動化發布平台</div>
     </div>
 """, unsafe_allow_html=True)
