@@ -22,11 +22,11 @@ WORK_DIR = "temp_workspace"
 HISTORY_FILE = "job_history.json"
 
 # ==========================================
-#              CSS (保留功能性修正)
+#              CSS 深度優化
 # ==========================================
 st.markdown("""
     <style>
-    /* 1. 隱藏頂部 Toolbar */
+    /* 1. 隱藏 Streamlit 預設 Header 與 Toolbar */
     header[data-testid="stHeader"] {
         display: none;
     }
@@ -39,7 +39,35 @@ st.markdown("""
         padding-top: 2rem !important; 
     }
 
-    /* 3. 上傳元件中文化 */
+    /* 3. [核心修正] Header 容器樣式 (Flexbox 置中) */
+    .header-container {
+        display: flex;
+        flex-direction: column; /* 垂直排列 */
+        align-items: center;    /* 水平置中對齊 */
+        justify-content: center;
+        margin-bottom: 25px;    /* 與下方內容的間距 */
+        width: 100%;
+    }
+
+    /* Logo 圖片樣式 */
+    .header-logo-img {
+        width: 300px !important;  /* 【指定需求】寬度固定 300px */
+        height: auto;
+        object-fit: contain;
+        margin-bottom: 10px;      /* Logo 與下方文字的間距 */
+    }
+
+    /* 副標題文字樣式 */
+    .header-subtitle-text {
+        color: gray;
+        font-size: 1.3rem;
+        font-weight: 500;
+        letter-spacing: 2px;
+        text-align: center;
+        margin: 0; /* 移除預設邊距，由容器控制 */
+    }
+    
+    /* 4. 上傳元件中文化 */
     [data-testid="stFileUploaderDropzoneInstructions"] > div:first-child { visibility: hidden; height: 0; }
     [data-testid="stFileUploaderDropzoneInstructions"] > div:nth-child(2) { visibility: hidden; height: 0; }
     [data-testid="stFileUploaderDropzoneInstructions"]::before {
@@ -66,7 +94,9 @@ st.markdown("""
         font-weight: 500;
     }
 
-    /* 4. 進度條顏色 */
+    /* 5. 通用樣式 */
+    h3 { font-size: 1.5rem !important; font-weight: 600 !important; }
+    h4 { font-size: 1.2rem !important; font-weight: 600 !important; color: #555; }
     .stProgress > div > div > div > div { color: white; font-weight: 500; }
     </style>
 """, unsafe_allow_html=True)
@@ -290,12 +320,13 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
 #              Main UI (Layout)
 # ==========================================
 
-# 1. Header: 使用 columns 置中
-# [修正] 將寬度設定為 450px 的一半，即 225px
-c_pad1, c_logo, c_pad2 = st.columns([1, 4, 1])
-with c_logo:
-    st.image(LOGO_URL, width=225)
-    st.markdown("<h3 style='text-align: left; color: gray; margin-top: -10px;'>簡報案例自動化發布平台</h3>", unsafe_allow_html=True)
+# 1. Header: 使用 Flexbox 容器將 Logo 和文字打包置中
+st.markdown(f"""
+    <div class="header-container">
+        <img src="{LOGO_URL}" class="header-logo-img">
+        <h3 class="header-subtitle-text">簡報案例自動化發布平台</h3>
+    </div>
+""", unsafe_allow_html=True)
 
 # 2. 功能說明
 st.info("功能說明： 上傳PPT → 線上拆分 → 影片雲端化 → 內嵌優化 → 簡報雲端化 → 寫入和椿資料庫")
