@@ -301,16 +301,41 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
 # 0. 確保工作目錄存在（避免首次使用就寫檔失敗）
 os.makedirs(WORK_DIR, exist_ok=True)
 
-# 1. Header：用 st.image + 置中容器（width 一定生效）
-c1, c2, c3 = st.columns([1, 1, 1])
-with c2:
-    st.image(LOGO_URL, width=150)  # ✅ 你要縮 50%：原 300 -> 150
-    st.markdown(
-        "<div style='text-align:center; color:gray; font-size:1.0rem; font-weight:500; letter-spacing:2px; margin-top:6px;'>"
-        "簡報案例自動化發布平台"
-        "</div>",
-        unsafe_allow_html=True
-    )
+# 1. Header：LOGO + 副標題（共同置中，寬度 300px）
+st.markdown(
+    f"""
+    <div style="
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 10px;
+    ">
+        <!-- LOGO -->
+        <img src="{LOGO_URL}" alt="Aurotek Logo" style="
+            width: 300px;
+            height: auto;
+            display: block;
+            margin: 0 auto;
+        " />
+
+        <!-- 副標題 -->
+        <div style="
+            margin-top: 6px;
+            width: 300px;              /* ✅ 跟 LOGO 同寬 */
+            text-align: center;        /* ✅ 同一中線 */
+            color: gray;
+            font-size: 1.0rem;
+            font-weight: 500;
+            letter-spacing: 2px;
+        ">
+            簡報案例自動化發布平台
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
 
 # 2. 功能說明 (已透過 CSS 將文字縮小)
