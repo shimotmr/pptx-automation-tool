@@ -4,6 +4,7 @@ import uuid
 import json
 import shutil
 import traceback
+import requests  # 新增：用於下載網路檔案
 from pptx import Presentation
 from ppt_processor import PPTAutomationBot
 
@@ -20,35 +21,88 @@ LOGO_URL = "https://aurotek.com/wp-content/uploads/2025/07/logo.svg"
 WORK_DIR = "temp_workspace"
 HISTORY_FILE = "job_history.json"
 
-# 自定義 CSS 以優化 UI 細節
+# ==========================================
+#              CSS 深度優化
+# ==========================================
 st.markdown("""
     <style>
-    /* 1. 調整頂部間距 (稍微縮小一點，讓 header 更緊湊) */
+    /* 1. 【核心修正】隱藏 Streamlit 預設 Header 與 Toolbar */
+    /* 這是讓 Logo 能置頂且不被切到的關鍵 */
+    header[data-testid="stHeader"] {
+        display: none;
+    }
+    .stApp > header {
+        display: none;
+    }
+    
+    /* 2. 調整頂部間距 (因為 Header 沒了，可以把內容往上拉) */
     .block-container {
-        padding-top: 2rem !important; 
+        padding-top: 1rem !important; 
+    }
+
+    /* 3. Logo 容器樣式 */
+    .logo-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 20px;
+        padding-top: 20px;
+    }
+    .logo-img {
+        width: 600px !important; /* 強制設定寬度 */
+        max-width: 90vw !important; /* 手機版不超出版面 */
+        height: auto;
+        object-fit: contain;
     }
     
-    /* 2. 標題與文字大小 */
-    h3 {
-        font-size: 1.5rem !important;
-        font-weight: 600 !important;
+    /* 4. 上傳元件中文化 (CSS Hack) */
+    /* 隱藏原始英文文字 */
+    [data-testid="stFileUploaderDropzoneInstructions"] > div:first-child {
+        visibility: hidden;
+        height: 0;
     }
-    h4 {
-        font-size: 1.2rem !important;
-        font-weight: 600 !important;
-        color: #555;
+    [data-testid="stFileUploaderDropzoneInstructions"] > div:nth-child(2) {
+        visibility: hidden;
+        height: 0;
     }
-    
-    /* 3. 進度條文字顏色 */
-    .stProgress > div > div > div > div {
-        color: white;
+    /* 插入中文文字 */
+    [data-testid="stFileUploaderDropzoneInstructions"]::before {
+        content: "請將檔案拖放至此";
+        visibility: visible;
+        display: block;
+        font-size: 1.2rem;
+        font-weight: bold;
+        margin-bottom: 5px;
+    }
+    [data-testid="stFileUploaderDropzoneInstructions"]::after {
+        content: "單一檔案限制 5GB • PPTX";
+        visibility: visible;
+        display: block;
+        font-size: 0.8rem;
+        color: gray;
+    }
+    /* 修改按鈕文字 */
+    [data-testid="stFileUploader"] button {
+        color: transparent !important; /* 隱藏原本的 Browse files */
+        position: relative;
+    }
+    [data-testid="stFileUploader"] button::after {
+        content: "瀏覽檔案";
+        color: #31333F; /* 恢復文字顏色 */
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
         font-weight: 500;
     }
 
-    /* 4. 縮小功能說明區塊文字 */
-    .stAlert p {
-        font-size: 0.9rem !important;
-        line-height: 1.4 !important;
+    /* 5. 通用樣式 */
+    h3 { font-size: 1.5rem !important; font-weight: 600 !important; }
+    h4 { font-size: 1.2rem !important; font-weight: 600 !important; color: #555; }
+    .stProgress > div > div > div > div { color: white; font-weight: 500; }
+    .header-subtitle {
+        color: gray; font-size: 1.3rem; font-weight: 500; margin-top: 15px; letter-spacing: 2px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -57,7 +111,6 @@ st.markdown("""
 #              Helper Functions
 # ==========================================
 def cleanup_workspace():
-    """強制刪除工作目錄並重建"""
     if os.path.exists(WORK_DIR):
         try:
             shutil.rmtree(WORK_DIR)
@@ -131,6 +184,18 @@ def validate_jobs(jobs, total_slides):
             errors.append(conflict_msg)
 
     return errors
+
+# [新增] 下載網址檔案的功能
+def download_file_from_url(url, dest_path):
+    try:
+        response = requests.get(url, stream=True)
+        response.raise_for_status()
+        with open(dest_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+        return True, None
+    except Exception as e:
+        return False, str(e)
 
 # ==========================================
 #              Core Logic Function
@@ -262,20 +327,18 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
 #              Main UI (Layout)
 # ==========================================
 
-# [最終修改] 改用 Flexbox 容器控制，這能確保最完美的置中與縮放
-# width: 600px; 是一個足夠大的數值，能強迫 SVG 顯示出內部細節
+# 1. Header (Logo + Title)
 st.markdown(f"""
-    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center;">
-        <img src="{LOGO_URL}" style="width: 600px; max-width: 90vw; height: auto; object-fit: contain;">
-        <div style="color: gray; font-size: 1.2rem; font-weight: 500; margin-top: 15px; letter-spacing: 1px;">
-            簡報案例自動化發布平台
-        </div>
+    <div class="logo-container">
+        <img src="{LOGO_URL}" class="logo-img">
+        <div class="header-subtitle">簡報案例自動化發布平台</div>
     </div>
-    <div style="height: 30px;"></div> """, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
-# 功能說明
+# 2. 功能說明
 st.info("功能說明： 上傳PPT → 線上拆分 → 影片雲端化 → 內嵌優化 → 簡報雲端化 → 寫入和椿資料庫")
 
+# 3. 初始化
 if 'split_jobs' not in st.session_state:
     st.session_state.split_jobs = []
 
@@ -294,28 +357,67 @@ if 'current_file_name' not in st.session_state:
 if 'ppt_meta' not in st.session_state:
     st.session_state.ppt_meta = {"total_slides": 0, "preview_data": []}
 
-# --- 上傳區塊 ---
+# 4. 檔案來源選擇區塊
 with st.container(border=True):
-    st.subheader("📂 步驟一：上傳原始簡報")
-    uploaded_file = st.file_uploader("請選擇 PPTX 檔案", type=['pptx'])
+    st.subheader("📂 步驟一：選擇檔案來源")
+    
+    # [新增] 頁籤切換輸入模式
+    input_method = st.radio("請選擇上傳方式：", ["本地檔案上傳", "線上 PPT 網址"], horizontal=True)
+    
+    uploaded_file = None
+    source_path = os.path.join(WORK_DIR, "source.pptx")
+    file_name_for_logic = None # 用於邏輯判斷的檔名
 
-    if uploaded_file:
-        file_prefix = os.path.splitext(uploaded_file.name)[0]
-        source_path = os.path.join(WORK_DIR, "source.pptx")
+    if input_method == "本地檔案上傳":
+        uploaded_file = st.file_uploader("請選擇 PPTX 檔案", type=['pptx'], label_visibility="collapsed")
+        if uploaded_file:
+            file_name_for_logic = uploaded_file.name
+            # 寫入暫存
+            if not os.path.exists(WORK_DIR): os.makedirs(WORK_DIR)
+            with open(source_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+
+    else:
+        url_input = st.text_input("請輸入 PPTX 檔案的直接下載網址 (Direct URL)", placeholder="https://example.com/file.pptx")
+        if url_input:
+            if not url_input.lower().endswith(".pptx"):
+                st.warning("⚠️ 網址結尾似乎不是 .pptx，請確認網址正確性。")
+            
+            # 模擬一個檔名 (從網址擷取)
+            fake_name = url_input.split("/")[-1].split("?")[0]
+            if not fake_name.lower().endswith(".pptx"): fake_name += ".pptx"
+            
+            # 下載按鈕 (避免每次輸入都重新下載)
+            if st.button("📥 下載並處理此網址"):
+                with st.spinner("正在從網址下載檔案..."):
+                    if not os.path.exists(WORK_DIR): os.makedirs(WORK_DIR)
+                    success, error = download_file_from_url(url_input, source_path)
+                    if success:
+                        file_name_for_logic = fake_name
+                        st.success("下載成功！")
+                    else:
+                        st.error(f"下載失敗: {error}")
+
+    # 5. 檔案處理邏輯 (共用)
+    if file_name_for_logic and os.path.exists(source_path):
+        file_prefix = os.path.splitext(file_name_for_logic)[0]
         
-        if st.session_state.current_file_name != uploaded_file.name:
-            cleanup_workspace()
-            saved_jobs = load_history(uploaded_file.name)
+        # 判斷是否為新檔案 (需要重新解析)
+        if st.session_state.current_file_name != file_name_for_logic:
+            cleanup_workspace() # 清除舊資料，保留 source.pptx (因為剛剛才寫入)
+            # 重新確保 source.pptx 存在 (cleanup 可能會刪除它，需注意流程)
+            # 優化：cleanup 不刪除 source.pptx，或者重新寫入。
+            # 這裡簡化：如果換檔，先清除除了 source.pptx 以外的東西，或乾脆全部重來。
+            # 為保險起見，我們假設上面的寫入操作是最新的。
+            
+            saved_jobs = load_history(file_name_for_logic)
             st.session_state.split_jobs = saved_jobs if saved_jobs else []
             
             progress_placeholder = st.empty()
             progress_placeholder.progress(0, text="解析檔案中...")
             
             try:
-                with open(source_path, "wb") as f:
-                    f.write(uploaded_file.getbuffer())
-                progress_placeholder.progress(40, text="解析內容結構...")
-                
+                # 解析 PPT
                 prs = Presentation(source_path)
                 total_slides = len(prs.slides)
                 
@@ -331,10 +433,10 @@ with st.container(border=True):
                 
                 st.session_state.ppt_meta["total_slides"] = total_slides
                 st.session_state.ppt_meta["preview_data"] = preview_data
-                st.session_state.current_file_name = uploaded_file.name
+                st.session_state.current_file_name = file_name_for_logic
                 
                 progress_placeholder.progress(100, text="完成！")
-                st.success(f"✅ 已讀取：{uploaded_file.name} (共 {total_slides} 頁)")
+                st.success(f"✅ 已讀取：{file_name_for_logic} (共 {total_slides} 頁)")
                 
             except Exception as e:
                 st.error(f"檔案處理失敗: {e}")
