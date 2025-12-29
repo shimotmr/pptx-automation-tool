@@ -37,7 +37,7 @@ header[data-testid="stHeader"] { display: none; }
     padding-bottom: 2rem !important;
 }
 
-/* 3. [修正] 上傳元件中文化 - 徹底解決文字重疊問題 */
+/* 3. [修正] 上傳元件中文化 */
 [data-testid="stFileUploaderDropzoneInstructions"] > div:first-child { display: none !important; }
 [data-testid="stFileUploaderDropzoneInstructions"] > div:nth-child(2) { display: none !important; }
 
@@ -58,27 +58,30 @@ header[data-testid="stHeader"] { display: none; }
     line-height: 1.2;
 }
 
-/* [關鍵修正] 使用 font-size: 0 隱藏原本的 Browse files 文字 */
+/* [關鍵修正] 修復按鈕尺寸過小的問題 */
 [data-testid="stFileUploader"] button { 
-    font-size: 0 !important;
+    font-size: 0 !important;        /* 隱藏原文字 */
     line-height: 0 !important;
     color: transparent !important;
     position: relative;
-    padding: 0.5rem 1rem; /* 確保按鈕有體積 */
+    width: auto !important;
+    min-width: 120px !important;    /* 強制最小寬度，避免縮成一團 */
+    min-height: 40px !important;    /* 強制最小高度 */
+    padding: 0 !important;          /* 重置內距，由寬高控制 */
 }
 
 /* 重新繪製中文文字 */
 [data-testid="stFileUploader"] button::after {
     content: "瀏覽檔案";
-    font-size: 1rem !important; /* 恢復文字大小 */
+    font-size: 1rem !important;     /* 恢復文字大小 */
     line-height: 1.5 !important;
     color: #31333F !important;
     position: absolute;
-    left: 50%; top: 50%;
-    transform: translate(-50%, -50%);
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%); /* 絕對置中 */
     font-weight: 600;
+    white-space: nowrap;            /* 不換行 */
     display: block;
-    width: 100%; 
 }
 
 /* 4. 通用樣式 */
@@ -86,15 +89,14 @@ h3 { font-size: 1.5rem !important; font-weight: 600 !important; }
 h4 { font-size: 1.2rem !important; font-weight: 600 !important; color: #555; }
 .stProgress > div > div > div > div { color: white; font-weight: 500; }
 
-/* 5. [修正] 統一提示詞顏色 (將綠色 Success 改為藍色 Info 風格) */
-/* 讓 st.success 的外觀看起來跟 st.info 一模一樣 */
+/* 5. 統一提示詞顏色 (藍色風格) */
 div[data-testid="stAlert"][data-style="success"] {
-    background-color: #e8f0fe !important; /* 與 st.info 相同的淺藍色 */
-    color: #004280 !important; /* 深藍色文字 */
+    background-color: #e8f0fe !important;
+    color: #004280 !important;
     border: 1px solid #d0e1f9 !important;
 }
 div[data-testid="stAlert"][data-style="success"] svg {
-    color: #004280 !important; /* 圖示也改為藍色 */
+    color: #004280 !important;
 }
 
 /* 縮小提示框文字 */
@@ -109,7 +111,7 @@ div[data-testid="stAlert"][data-style="success"] svg {
 #              Helper Functions
 # ==========================================
 def cleanup_workspace():
-    """清理工作目錄，確保是乾淨的狀態"""
+    """清理工作目錄"""
     if os.path.exists(WORK_DIR):
         try:
             shutil.rmtree(WORK_DIR)
@@ -143,7 +145,7 @@ def save_history(filename, jobs):
         print(f"History save failed: {e}")
 
 def add_split_job(total_pages):
-    # 新任務插入到最前面 (Index 0)
+    # 新任務插入到最前面
     st.session_state.split_jobs.insert(0, {
         "id": str(uuid.uuid4())[:8],
         "filename": "",
@@ -161,7 +163,6 @@ def remove_split_job(index):
 def validate_jobs(jobs, total_slides):
     errors = []
     for i, job in enumerate(jobs):
-        # 這裡的 i 是列表索引，之後顯示時會轉換為「倒序編號」
         display_num = len(jobs) - i
         task_label = f"任務 {display_num} (檔名: {job['filename'] or '未命名'})"
         
@@ -172,7 +173,6 @@ def validate_jobs(jobs, total_slides):
         if job['end'] > total_slides:
             errors.append(f"❌ {task_label}: 結束頁 ({job['end']}) 超出了簡報總頁數 ({total_slides})。")
 
-    # 檢查重疊 (這裡保持內部邏輯，顯示給使用者的訊息也可以優化)
     sorted_jobs = sorted(jobs, key=lambda x: x['start'])
     for i in range(len(sorted_jobs) - 1):
         current_job = sorted_jobs[i]
@@ -401,13 +401,11 @@ with st.container(border=True):
         if uploaded_file:
             file_name_for_logic = uploaded_file.name
             
-            # [修正] 邏輯順序：新檔案 -> 清理 -> 寫入
+            # 新檔案 -> 清理 -> 寫入
             if st.session_state.current_file_name != file_name_for_logic:
                 cleanup_workspace()
                 with open(source_path, "wb") as f:
                     f.write(uploaded_file.getbuffer())
-            
-            # 檔案遺失補救
             elif not os.path.exists(source_path):
                  with open(source_path, "wb") as f:
                     f.write(uploaded_file.getbuffer())
@@ -425,12 +423,11 @@ with st.container(border=True):
 
             if st.button("📥 下載並處理此網址"):
                 with st.spinner("正在從網址下載檔案..."):
-                    # [修正] 下載前先清理
                     cleanup_workspace()
                     success, error = download_file_from_url(url_input, source_path)
                     if success:
                         file_name_for_logic = fake_name
-                        st.success("下載成功！") # 這裡雖然用 st.success，但已被 CSS 改為藍色
+                        st.success("下載成功！") # CSS 已改為藍色
                     else:
                         st.error(f"下載失敗: {error}")
 
@@ -439,7 +436,6 @@ with st.container(border=True):
         file_prefix = os.path.splitext(file_name_for_logic)[0]
 
         if st.session_state.current_file_name != file_name_for_logic:
-            # [修正] 這裡不需要再 cleanup，避免刪除剛寫入的檔案
             saved_jobs = load_history(file_name_for_logic)
             st.session_state.split_jobs = saved_jobs if saved_jobs else []
 
@@ -465,7 +461,7 @@ with st.container(border=True):
                 st.session_state.current_file_name = file_name_for_logic
 
                 progress_placeholder.progress(100, text="完成！")
-                st.success(f"✅ 已讀取：{file_name_for_logic} (共 {total_slides} 頁)") # 藍色提示
+                st.success(f"✅ 已讀取：{file_name_for_logic} (共 {total_slides} 頁)")
 
             except Exception as e:
                 st.error(f"檔案處理失敗: {e}")
@@ -489,11 +485,11 @@ if st.session_state.current_file_name:
         if not st.session_state.split_jobs:
             st.info("☝️ 尚未建立任務，請點擊上方按鈕新增。")
 
-        # 計算總任務數，用於顯示倒序編號
+        # 任務顯示倒序
         total_jobs_count = len(st.session_state.split_jobs)
 
         for i, job in enumerate(st.session_state.split_jobs):
-            # [修正] 顯示編號：總數 - 當前索引 (例如 3, 2, 1)
+            # [修正] 顯示倒數編號
             display_number = total_jobs_count - i
             
             with st.container(border=True):
