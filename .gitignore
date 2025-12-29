@@ -1,0 +1,20 @@
+# === 🔒 絕對機密 (千萬不能上傳) ===
+token.json
+credentials.json
+secrets.toml
+.env
+
+# === 🗑️ 暫存與中間檔案 (不需要上傳) ===
+temp_workspace/
+debug_output/
+video_map_*.json
+job_history.json
+__pycache__/
+*.pyc
+
+# === 🐍 Python 環境與系統檔 ===
+venv/
+.venv/
+.DS_Store
+.vscode/
+.idea/
