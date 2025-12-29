@@ -88,7 +88,7 @@ def cleanup_workspace():
             shutil.rmtree(WORK_DIR)
         except Exception as e:
             print(f"Cleanup warning: {e}")
-    os.makedirs(WORK_DIR)
+    os.makedirs(WORK_DIR, exist_ok=True)
 
 def load_history(filename):
     if os.path.exists(HISTORY_FILE):
@@ -159,7 +159,7 @@ def validate_jobs(jobs, total_slides):
 
 def download_file_from_url(url, dest_path):
     try:
-        response = requests.get(url, stream=True)
+        response = requests.get(url, stream=True, timeout=60)
         response.raise_for_status()
         with open(dest_path, 'wb') as f:
             for chunk in response.iter_content(chunk_size=8192):
@@ -298,16 +298,19 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
 #              Main UI (Layout)
 # ==========================================
 
-# 1. Header: Flex container 置中
-# [修正] 將副標題的 font-size 從 1.3rem 縮小為 1.0rem
-st.markdown(f"""
-    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; margin-bottom: 20px;">
-        <img src="{LOGO_URL}" style="width: 300px; height: auto; margin-bottom: 10px;">
-        <div style="color: gray; font-size: 1.0rem; font-weight: 500; letter-spacing: 2px;">
-            簡報案例自動化發布平台
-        </div>
-    </div>
-""", unsafe_allow_html=True)
+# 0. 確保工作目錄存在（避免首次使用就寫檔失敗）
+os.makedirs(WORK_DIR, exist_ok=True)
+
+# 1. Header：方法A（推薦）用 st.image + 三欄置中，尺寸用 width 控制
+col1, col2, col3 = st.columns([1, 3, 1])
+with col2:
+    st.image(LOGO_URL, width=520)  # ✅ 你要放大就改這裡，例如 650 / 720
+    st.markdown(
+        "<div style='text-align:center; color:gray; font-size:1.0rem; font-weight:500; letter-spacing:2px;'>"
+        "簡報案例自動化發布平台"
+        "</div>",
+        unsafe_allow_html=True
+    )
 
 # 2. 功能說明 (已透過 CSS 將文字縮小)
 st.info("功能說明： 上傳PPT → 線上拆分 → 影片雲端化 → 內嵌優化 → 簡報雲端化 → 寫入和椿資料庫")
@@ -345,7 +348,8 @@ with st.container(border=True):
         uploaded_file = st.file_uploader("請選擇 PPTX 檔案", type=['pptx'], label_visibility="collapsed")
         if uploaded_file:
             file_name_for_logic = uploaded_file.name
-            if not os.path.exists(WORK_DIR): os.makedirs(WORK_DIR)
+            if not os.path.exists(WORK_DIR):
+                os.makedirs(WORK_DIR, exist_ok=True)
             with open(source_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
 
@@ -356,11 +360,13 @@ with st.container(border=True):
                 st.warning("⚠️ 網址結尾似乎不是 .pptx，請確認網址正確性。")
             
             fake_name = url_input.split("/")[-1].split("?")[0]
-            if not fake_name.lower().endswith(".pptx"): fake_name += ".pptx"
+            if not fake_name.lower().endswith(".pptx"):
+                fake_name += ".pptx"
             
             if st.button("📥 下載並處理此網址"):
                 with st.spinner("正在從網址下載檔案..."):
-                    if not os.path.exists(WORK_DIR): os.makedirs(WORK_DIR)
+                    if not os.path.exists(WORK_DIR):
+                        os.makedirs(WORK_DIR, exist_ok=True)
                     success, error = download_file_from_url(url_input, source_path)
                     if success:
                         file_name_for_logic = fake_name
@@ -388,7 +394,7 @@ with st.container(border=True):
                 for i, slide in enumerate(prs.slides):
                     txt = slide.shapes.title.text if (slide.shapes.title and slide.shapes.title.text) else "無標題"
                     if txt == "無標題":
-                         for s in slide.shapes:
+                        for s in slide.shapes:
                             if hasattr(s, "text") and s.text.strip():
                                 txt = s.text.strip()[:20] + "..."
                                 break
@@ -461,8 +467,8 @@ if st.session_state.current_file_name:
                     st.error("⛔️ 請修正錯誤後繼續。")
                 else:
                     if 'bot' not in st.session_state or not st.session_state.bot:
-                         st.error("❌ 機器人未初始化 (憑證錯誤)，請檢查 Secrets。")
-                         st.stop()
+                        st.error("❌ 機器人未初始化 (憑證錯誤)，請檢查 Secrets。")
+                        st.stop()
                     
                     execute_automation_logic(
                         st.session_state.bot,
