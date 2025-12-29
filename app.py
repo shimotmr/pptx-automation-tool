@@ -34,10 +34,10 @@ header[data-testid="stHeader"] { display: none; }
 /* 2. 調整頂部間距 */
 .block-container {
     padding-top: 1rem !important;
-    padding-bottom: 1rem !important;
+    padding-bottom: 2rem !important;
 }
 
-/* 3. 上傳元件中文化 Hack */
+/* 3. [修正] 上傳元件中文化 - 徹底解決文字重疊問題 */
 [data-testid="stFileUploaderDropzoneInstructions"] > div:first-child { display: none !important; }
 [data-testid="stFileUploaderDropzoneInstructions"] > div:nth-child(2) { display: none !important; }
 
@@ -58,15 +58,27 @@ header[data-testid="stHeader"] { display: none; }
     line-height: 1.2;
 }
 
-/* 上傳按鈕中文化 */
-[data-testid="stFileUploader"] button { color: transparent !important; position: relative; }
+/* [關鍵修正] 使用 font-size: 0 隱藏原本的 Browse files 文字 */
+[data-testid="stFileUploader"] button { 
+    font-size: 0 !important;
+    line-height: 0 !important;
+    color: transparent !important;
+    position: relative;
+    padding: 0.5rem 1rem; /* 確保按鈕有體積 */
+}
+
+/* 重新繪製中文文字 */
 [data-testid="stFileUploader"] button::after {
     content: "瀏覽檔案";
-    color: #31333F;
+    font-size: 1rem !important; /* 恢復文字大小 */
+    line-height: 1.5 !important;
+    color: #31333F !important;
     position: absolute;
     left: 50%; top: 50%;
     transform: translate(-50%, -50%);
     font-weight: 600;
+    display: block;
+    width: 100%; 
 }
 
 /* 4. 通用樣式 */
@@ -74,7 +86,18 @@ h3 { font-size: 1.5rem !important; font-weight: 600 !important; }
 h4 { font-size: 1.2rem !important; font-weight: 600 !important; color: #555; }
 .stProgress > div > div > div > div { color: white; font-weight: 500; }
 
-/* 縮小 st.info 文字 */
+/* 5. [修正] 統一提示詞顏色 (將綠色 Success 改為藍色 Info 風格) */
+/* 讓 st.success 的外觀看起來跟 st.info 一模一樣 */
+div[data-testid="stAlert"][data-style="success"] {
+    background-color: #e8f0fe !important; /* 與 st.info 相同的淺藍色 */
+    color: #004280 !important; /* 深藍色文字 */
+    border: 1px solid #d0e1f9 !important;
+}
+div[data-testid="stAlert"][data-style="success"] svg {
+    color: #004280 !important; /* 圖示也改為藍色 */
+}
+
+/* 縮小提示框文字 */
 [data-testid="stAlert"] p {
     font-size: 0.85rem !important;
     line-height: 1.35 !important;
@@ -120,6 +143,7 @@ def save_history(filename, jobs):
         print(f"History save failed: {e}")
 
 def add_split_job(total_pages):
+    # 新任務插入到最前面 (Index 0)
     st.session_state.split_jobs.insert(0, {
         "id": str(uuid.uuid4())[:8],
         "filename": "",
@@ -137,7 +161,10 @@ def remove_split_job(index):
 def validate_jobs(jobs, total_slides):
     errors = []
     for i, job in enumerate(jobs):
-        task_label = f"任務 {i+1} (檔名: {job['filename'] or '未命名'})"
+        # 這裡的 i 是列表索引，之後顯示時會轉換為「倒序編號」
+        display_num = len(jobs) - i
+        task_label = f"任務 {display_num} (檔名: {job['filename'] or '未命名'})"
+        
         if not job['filename'].strip():
             errors.append(f"❌ {task_label}: 檔案名稱不能為空。")
         if job['start'] > job['end']:
@@ -145,6 +172,7 @@ def validate_jobs(jobs, total_slides):
         if job['end'] > total_slides:
             errors.append(f"❌ {task_label}: 結束頁 ({job['end']}) 超出了簡報總頁數 ({total_slides})。")
 
+    # 檢查重疊 (這裡保持內部邏輯，顯示給使用者的訊息也可以優化)
     sorted_jobs = sorted(jobs, key=lambda x: x['start'])
     for i in range(len(sorted_jobs) - 1):
         current_job = sorted_jobs[i]
@@ -313,7 +341,7 @@ st.markdown(
         line-height: 1.1;
     ">
         <img src="{LOGO_URL}" alt="Aurotek Logo" style="
-            width: 450px;
+            width: 300px;
             max-width: 90vw;
             height: auto;
             display: block;
@@ -367,25 +395,24 @@ with st.container(border=True):
     source_path = os.path.join(WORK_DIR, "source.pptx")
     file_name_for_logic = None
 
-    # --- 本地檔案上傳邏輯修正 ---
+    # --- 本地檔案上傳 ---
     if input_method == "本地檔案":
         uploaded_file = st.file_uploader("請選擇 PPTX 檔案", type=['pptx'], label_visibility="collapsed")
         if uploaded_file:
             file_name_for_logic = uploaded_file.name
             
-            # [修正] 只有當是新檔案時，才執行清理，並寫入新檔
-            # 這樣可以避免每次 rerun 都清空並重寫，且順序正確
+            # [修正] 邏輯順序：新檔案 -> 清理 -> 寫入
             if st.session_state.current_file_name != file_name_for_logic:
-                cleanup_workspace() # 1. 先清理
-                with open(source_path, "wb") as f: # 2. 再寫入
+                cleanup_workspace()
+                with open(source_path, "wb") as f:
                     f.write(uploaded_file.getbuffer())
             
-            # 雙重保險：如果檔案被意外刪除，但檔名沒變，也補寫回去
+            # 檔案遺失補救
             elif not os.path.exists(source_path):
                  with open(source_path, "wb") as f:
                     f.write(uploaded_file.getbuffer())
 
-    # --- 線上檔案下載邏輯修正 ---
+    # --- 線上檔案下載 ---
     else:
         url_input = st.text_input("請輸入 PPTX 檔案的直接下載網址 (Direct URL)", placeholder="https://example.com/file.pptx")
         if url_input:
@@ -403,7 +430,7 @@ with st.container(border=True):
                     success, error = download_file_from_url(url_input, source_path)
                     if success:
                         file_name_for_logic = fake_name
-                        st.success("下載成功！")
+                        st.success("下載成功！") # 這裡雖然用 st.success，但已被 CSS 改為藍色
                     else:
                         st.error(f"下載失敗: {error}")
 
@@ -412,9 +439,7 @@ with st.container(border=True):
         file_prefix = os.path.splitext(file_name_for_logic)[0]
 
         if st.session_state.current_file_name != file_name_for_logic:
-            # [修正] 這裡不需要再呼叫 cleanup_workspace()，因為上方已經做過了
-            # 如果在這裡做，會把剛剛寫入的 source.pptx 刪掉！
-            
+            # [修正] 這裡不需要再 cleanup，避免刪除剛寫入的檔案
             saved_jobs = load_history(file_name_for_logic)
             st.session_state.split_jobs = saved_jobs if saved_jobs else []
 
@@ -440,7 +465,7 @@ with st.container(border=True):
                 st.session_state.current_file_name = file_name_for_logic
 
                 progress_placeholder.progress(100, text="完成！")
-                st.success(f"✅ 已讀取：{file_name_for_logic} (共 {total_slides} 頁)")
+                st.success(f"✅ 已讀取：{file_name_for_logic} (共 {total_slides} 頁)") # 藍色提示
 
             except Exception as e:
                 st.error(f"檔案處理失敗: {e}")
@@ -464,9 +489,15 @@ if st.session_state.current_file_name:
         if not st.session_state.split_jobs:
             st.info("☝️ 尚未建立任務，請點擊上方按鈕新增。")
 
+        # 計算總任務數，用於顯示倒序編號
+        total_jobs_count = len(st.session_state.split_jobs)
+
         for i, job in enumerate(st.session_state.split_jobs):
+            # [修正] 顯示編號：總數 - 當前索引 (例如 3, 2, 1)
+            display_number = total_jobs_count - i
+            
             with st.container(border=True):
-                st.markdown(f"**📄 任務 {i+1}**")
+                st.markdown(f"**📄 任務 {display_number}**")
 
                 c1, c2, c3 = st.columns([3, 1.5, 1.5])
                 job["filename"] = c1.text_input("檔名", value=job["filename"], key=f"f_{job['id']}", placeholder="例如: 清潔案例A")
