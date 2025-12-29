@@ -39,35 +39,7 @@ st.markdown("""
         padding-top: 2rem !important; 
     }
 
-    /* 3. [核心修正] Header 容器樣式 (Flexbox 置中) */
-    .header-container {
-        display: flex;
-        flex-direction: column; /* 垂直排列 */
-        align-items: center;    /* 水平置中對齊 */
-        justify-content: center;
-        margin-bottom: 25px;    /* 與下方內容的間距 */
-        width: 100%;
-    }
-
-    /* Logo 圖片樣式 */
-    .header-logo-img {
-        width: 300px !important;  /* 【指定需求】寬度固定 300px */
-        height: auto;
-        object-fit: contain;
-        margin-bottom: 10px;      /* Logo 與下方文字的間距 */
-    }
-
-    /* 副標題文字樣式 */
-    .header-subtitle-text {
-        color: gray;
-        font-size: 1.3rem;
-        font-weight: 500;
-        letter-spacing: 2px;
-        text-align: center;
-        margin: 0; /* 移除預設邊距，由容器控制 */
-    }
-    
-    /* 4. 上傳元件中文化 */
+    /* 3. 上傳元件中文化 */
     [data-testid="stFileUploaderDropzoneInstructions"] > div:first-child { visibility: hidden; height: 0; }
     [data-testid="stFileUploaderDropzoneInstructions"] > div:nth-child(2) { visibility: hidden; height: 0; }
     [data-testid="stFileUploaderDropzoneInstructions"]::before {
@@ -94,9 +66,7 @@ st.markdown("""
         font-weight: 500;
     }
 
-    /* 5. 通用樣式 */
-    h3 { font-size: 1.5rem !important; font-weight: 600 !important; }
-    h4 { font-size: 1.2rem !important; font-weight: 600 !important; color: #555; }
+    /* 4. 進度條顏色 */
     .stProgress > div > div > div > div { color: white; font-weight: 500; }
     </style>
 """, unsafe_allow_html=True)
@@ -320,11 +290,15 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
 #              Main UI (Layout)
 # ==========================================
 
-# 1. Header: 使用 Flexbox 容器將 Logo 和文字打包置中
+# 1. Header: 這是修正的關鍵！
+# 我們不使用 st.columns，而是使用一個 100% 寬度的 Flex container。
+# 這樣 "Logo" 和 "文字" 就會被強制在整個螢幕的正中央對齊。
 st.markdown(f"""
-    <div class="header-container">
-        <img src="{LOGO_URL}" class="header-logo-img">
-        <h3 class="header-subtitle-text">簡報案例自動化發布平台</h3>
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; margin-bottom: 20px;">
+        <img src="{LOGO_URL}" style="width: 300px; height: auto; margin-bottom: 10px;">
+        <div style="color: gray; font-size: 1.3rem; font-weight: 500; letter-spacing: 2px;">
+            簡報案例自動化發布平台
+        </div>
     </div>
 """, unsafe_allow_html=True)
 
