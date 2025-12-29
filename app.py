@@ -3,15 +3,49 @@ import os
 import uuid
 import json
 import shutil
+import traceback
 from pptx import Presentation
 from ppt_processor import PPTAutomationBot
 
 # ==========================================
-#              設定頁面
+#              設定頁面與樣式
 # ==========================================
-st.set_page_config(page_title="Aurotek數位資料庫 簡報案例自動化發布平台", layout="wide")
+st.set_page_config(
+    page_title="Aurotek數位資料庫 簡報案例自動化發布平台",
+    page_icon="🤖",
+    layout="wide"
+)
+
+# 自定義 CSS 以優化 UI 細節
+st.markdown("""
+    <style>
+    .st-emotion-cache-1v0mbdj > img {
+        max-width: 200px; /* 限制 Logo 大小 */
+        margin-bottom: 20px;
+    }
+    .block-container {
+        padding-top: 2rem; /* 調整頂部間距 */
+    }
+    h3 {
+        font-size: 1.5rem !important; /* 統一標題大小 */
+        font-weight: 600 !important;
+    }
+    h4 {
+        font-size: 1.2rem !important; /* 統一子標題大小 */
+        font-weight: 600 !important;
+        color: #555;
+    }
+    /* 優化進度條文字顯示 */
+    .stProgress > div > div > div > div {
+        color: white;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+
 WORK_DIR = "temp_workspace"
 HISTORY_FILE = "job_history.json"
+LOGO_URL = "https://aurotek.com/wp-content/uploads/2025/07/logo.svg"
 
 # ==========================================
 #              Helper Functions
@@ -68,7 +102,7 @@ def remove_split_job(index):
 def validate_jobs(jobs, total_slides):
     errors = []
     for i, job in enumerate(jobs):
-        task_label = f"任務 (檔名: {job['filename'] or '未命名'})"
+        task_label = f"任務 {i+1} (檔名: {job['filename'] or '未命名'})"
         if not job['filename'].strip():
             errors.append(f"❌ {task_label}: 檔案名稱不能為空。")
         if job['start'] > job['end']:
@@ -93,28 +127,168 @@ def validate_jobs(jobs, total_slides):
     return errors
 
 # ==========================================
+#              Core Logic Function
+# ==========================================
+def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
+    """將核心執行邏輯獨立出來，避免縮排過深導致錯誤"""
+    
+    # UI 元件準備
+    main_progress = st.progress(0, text="準備開始...")
+    status_area = st.empty() # 用於顯示當前大步驟
+    detail_area = st.container() # 用於顯示詳細進度條
+
+    sorted_jobs = sorted(jobs, key=lambda x: x['start'])
+    
+    # --- 回調函式 (Callbacks) ---
+    def update_step1(filename, current, total):
+        pct = current / total if total > 0 else 0
+        detail_area.progress(pct, text=f"Step 1 詳細進度: 正在上傳 `{filename}` ({int(pct*100)}%)")
+
+    def update_step2(current, total):
+        pct = current / total if total > 0 else 0
+        detail_area.progress(pct, text=f"Step 2 詳細進度: 處理投影片 {current}/{total} ({int(pct*100)}%)")
+
+    def update_step3(current, total):
+        pct = current / total if total > 0 else 0
+        detail_area.progress(pct, text=f"Step 3 詳細進度: 處理內部檔案 {current}/{total} ({int(pct*100)}%)")
+
+    def update_step4(filename, current, total):
+        pct = current / total if total > 0 else 0
+        detail_area.progress(pct, text=f"Step 4 詳細進度: 正在上傳 `{filename}` ({int(pct*100)}%)")
+
+    def update_step5(current, total):
+        pct = current / total if total > 0 else 0
+        detail_area.progress(pct, text=f"Step 5 詳細進度: 優化任務 {current}/{total} ({int(pct*100)}%)")
+    
+    def general_log(msg):
+        print(f"[Log] {msg}")
+
+    # --- 開始執行 ---
+    try:
+        # === Step 1: 提取與上傳影片 ===
+        status_area.info("1️⃣ 正在執行步驟 1/5：提取 PPT 內影片並上傳至雲端...")
+        main_progress.progress(5, text="Step 1: 影片雲端化")
+        video_map = bot.extract_and_upload_videos(
+            source_path, 
+            os.path.join(WORK_DIR, "media"), 
+            file_prefix=file_prefix,
+            progress_callback=update_step1,
+            log_callback=general_log
+        )
+        detail_area.empty()
+        
+        # === Step 2: 置換為圖片連結 ===
+        status_area.info("2️⃣ 正在執行步驟 2/5：將 PPT 內的影片替換為雲端連結圖片...")
+        main_progress.progress(25, text="Step 2: 連結置換")
+        mod_path = os.path.join(WORK_DIR, "modified.pptx")
+        bot.replace_videos_with_images(
+            source_path, 
+            mod_path, 
+            video_map,
+            progress_callback=update_step2
+        )
+        detail_area.empty()
+        
+        # === Step 3: 檔案瘦身 ===
+        status_area.info("3️⃣ 正在執行步驟 3/5：進行檔案壓縮與瘦身 (提升解析度)...")
+        main_progress.progress(45, text="Step 3: 檔案瘦身")
+        slim_path = os.path.join(WORK_DIR, "slim.pptx")
+        bot.shrink_pptx(
+            mod_path, 
+            slim_path,
+            progress_callback=update_step3
+        )
+        detail_area.empty()
+        
+        # === Step 4: 拆分與上傳 ===
+        status_area.info("4️⃣ 正在執行步驟 4/5：依設定拆分簡報並上傳至 Google Slides...")
+        main_progress.progress(65, text="Step 4: 拆分發布")
+        
+        results = bot.split_and_upload(
+            slim_path, 
+            sorted_jobs,
+            file_prefix=file_prefix,
+            progress_callback=update_step4,
+            log_callback=general_log
+        )
+        detail_area.empty()
+        
+        # 檢查 Step 4 錯誤
+        oversized_errors = [r for r in results if r.get('error_too_large')]
+        if oversized_errors:
+            st.error("⛔️ 流程終止：偵測到拆分後的檔案過大。")
+            for err_job in oversized_errors:
+                st.error(f"❌ 任務「{err_job['filename']}」壓縮後仍有 {err_job['size_mb']:.2f} MB，超過 Google 限制 (100MB)。")
+            st.warning("💡 建議做法：請減少該任務的頁數範圍，將其拆分為多個小任務後重新執行。")
+            return # 終止
+        
+        # === Step 5: 內嵌優化 ===
+        status_area.info("5️⃣ 正在執行步驟 5/5：優化線上簡報的影片播放器...")
+        main_progress.progress(85, text="Step 5: 內嵌優化")
+        final_results = bot.embed_videos_in_slides(
+            results,
+            progress_callback=update_step5,
+            log_callback=general_log
+        )
+        detail_area.empty()
+        
+        # === Final: 寫入資料庫 ===
+        status_area.info("📝 正在執行最後步驟：將成果寫入 Google Sheets 資料庫...")
+        main_progress.progress(95, text="Final: 寫入資料庫")
+        bot.log_to_sheets(
+            final_results,
+            log_callback=general_log
+        )
+        
+        # 完成
+        main_progress.progress(100, text="🎉 任務全部完成！")
+        status_area.success("🎉 所有自動化流程執行完畢！")
+        st.balloons()
+        
+        # 清理
+        if auto_clean:
+            cleanup_workspace()
+            st.toast("已自動清除暫存檔案。", icon="🧹")
+        
+        # 顯示結果
+        st.divider()
+        st.subheader("✅ 產出結果連結")
+        result_count = 0
+        for res in final_results:
+            if 'final_link' in res:
+                result_count += 1
+                display_name = f"[{file_prefix}]_{res['filename']}"
+                st.markdown(f"👉 **{display_name}**: [點擊開啟 Google Slides]({res['final_link']})")
+        
+        if result_count == 0:
+            st.warning("沒有產生任何結果，請檢查是否有任務被跳過 (例如雲端已存在同名檔案)。")
+
+    except Exception as e:
+        st.error(f"執行過程中發生錯誤: {e}")
+        with st.expander("查看詳細錯誤資訊"):
+            st.code(traceback.format_exc())
+
+# ==========================================
 #              Main UI
 # ==========================================
+# Logo
+st.image(LOGO_URL, width=200)
+
+# 標題與說明文字
 st.title("🤖 Aurotek數位資料庫 簡報案例自動化發布平台")
 st.info("功能： 上傳PPT -> 線上拆分PPT -> 影片雲端化 -> 內嵌優化 -> 簡報雲端化 -> 雲端簡報嵌入雲端影片 -> 加入簡報至和椿數位資料庫")
 
-# --- 修正後的 Bot 初始化邏輯 ---
+# --- 初始化 Session State & Bot ---
 if 'split_jobs' not in st.session_state:
     st.session_state.split_jobs = []
 
 if 'bot' not in st.session_state:
     try:
-        # 直接初始化，不要檢查 credentials.json 檔案是否存在
-        # 因為在雲端環境，檔案是不存在的，而是透過 Secrets 讀取
         bot_instance = PPTAutomationBot()
-        
-        # 檢查是否成功取得了憑證 (Bot 內部會處理 Secrets 讀取)
         if bot_instance.creds:
             st.session_state.bot = bot_instance
         else:
-            # 如果連 Secrets 都讀不到，Bot 內部通常已經印出 st.error，這裡做個雙重確認
-            st.warning("⚠️ 系統未檢測到有效憑證，部分功能可能無法使用。")
-            
+            st.warning("⚠️ 系統未檢測到有效憑證，部分功能可能無法使用 (請檢查 Secrets)。")
     except Exception as e:
         st.error(f"Bot 初始化失敗: {e}")
 
@@ -123,239 +297,124 @@ if 'current_file_name' not in st.session_state:
 if 'ppt_meta' not in st.session_state:
     st.session_state.ppt_meta = {"total_slides": 0, "preview_data": []}
 
-# 1. 檔案上傳
-uploaded_file = st.file_uploader("📂 步驟一：上傳原始 PPTX", type=['pptx'])
+# --- 步驟一：檔案上傳區塊 ---
+with st.container(border=True):
+    st.subheader("📂 步驟一：上傳原始簡報")
+    uploaded_file = st.file_uploader("請選擇 PPTX 檔案 (支援大檔案上傳)", type=['pptx'])
 
-if uploaded_file:
-    file_prefix = os.path.splitext(uploaded_file.name)[0]
-    source_path = os.path.join(WORK_DIR, "source.pptx")
-    
-    if st.session_state.current_file_name != uploaded_file.name:
-        cleanup_workspace()
-        st.toast("已清除舊的暫存檔案，釋放硬碟空間。", icon="🧹")
-
-        saved_jobs = load_history(uploaded_file.name)
-        if saved_jobs:
-            st.session_state.split_jobs = saved_jobs
-            st.toast(f"已自動還原 {len(saved_jobs)} 筆設定！", icon="↩️")
-        else:
-            st.session_state.split_jobs = []
-
-        progress_text = "正在處理大型檔案 (寫入硬碟與解析)..."
-        my_bar = st.progress(0, text=progress_text)
+    if uploaded_file:
+        file_prefix = os.path.splitext(uploaded_file.name)[0]
+        source_path = os.path.join(WORK_DIR, "source.pptx")
         
-        try:
-            with open(source_path, "wb") as f:
-                f.write(uploaded_file.getbuffer())
-            my_bar.progress(50, text="寫入完成，正在解析 PPT 結構...")
-            
-            prs = Presentation(source_path)
-            total_slides = len(prs.slides)
-            
-            preview_data = []
-            for i, slide in enumerate(prs.slides):
-                txt = "無標題"
-                if slide.shapes.title and slide.shapes.title.text:
-                    txt = slide.shapes.title.text
-                else:
-                    for s in slide.shapes:
-                        if hasattr(s, "text") and s.text.strip():
-                            txt = s.text.strip()[:30] + "..."
-                            break
-                preview_data.append({"頁碼": i+1, "內容摘要": txt})
-            
-            st.session_state.ppt_meta["total_slides"] = total_slides
-            st.session_state.ppt_meta["preview_data"] = preview_data
-            st.session_state.current_file_name = uploaded_file.name
-            
-            my_bar.progress(100, text="解析完成！")
-            my_bar.empty()
-            st.success(f"檔案讀取成功！共 {total_slides} 頁。")
-            
-        except Exception as e:
-            st.error(f"檔案處理失敗: {e}")
-            st.stop()
+        if st.session_state.current_file_name != uploaded_file.name:
+            cleanup_workspace()
+            saved_jobs = load_history(uploaded_file.name)
+            if saved_jobs:
+                st.session_state.split_jobs = saved_jobs
+                st.toast(f"已自動還原 {len(saved_jobs)} 筆歷史設定！", icon="↩️")
+            else:
+                st.session_state.split_jobs = []
 
+            progress_text = "正在處理檔案 (寫入硬碟與解析結構)..."
+            my_bar = st.progress(0, text=progress_text)
+            
+            try:
+                with open(source_path, "wb") as f:
+                    f.write(uploaded_file.getbuffer())
+                my_bar.progress(40, text="寫入完成，正在解析 PPT 內容...")
+                
+                prs = Presentation(source_path)
+                total_slides = len(prs.slides)
+                
+                preview_data = []
+                for i, slide in enumerate(prs.slides):
+                    txt = "無標題"
+                    if slide.shapes.title and slide.shapes.title.text:
+                        txt = slide.shapes.title.text
+                    else:
+                        for s in slide.shapes:
+                            if hasattr(s, "text") and s.text.strip():
+                                txt = s.text.strip()[:30] + "..."
+                                break
+                    preview_data.append({"頁碼": i+1, "內容摘要": txt})
+                
+                st.session_state.ppt_meta["total_slides"] = total_slides
+                st.session_state.ppt_meta["preview_data"] = preview_data
+                st.session_state.current_file_name = uploaded_file.name
+                
+                my_bar.progress(100, text=f"解析完成！共 {total_slides} 頁。")
+                st.success(f"✅ 檔案「{uploaded_file.name}」讀取成功！")
+                
+            except Exception as e:
+                st.error(f"檔案處理失敗: {e}")
+                st.session_state.current_file_name = None
+                st.stop()
+
+if st.session_state.current_file_name:
     total_slides = st.session_state.ppt_meta["total_slides"]
     preview_data = st.session_state.ppt_meta["preview_data"]
 
-    # 2. 預覽
-    with st.expander("👁️ 點擊查看頁碼與標題對照", expanded=True):
-        st.dataframe(preview_data, use_container_width=True, height=300)
+    with st.expander("👁️ 點擊查看「頁碼與標題對照表」", expanded=False):
+        st.dataframe(preview_data, use_container_width=True, height=300, hide_index=True)
 
-    # 3. 拆分設定
-    st.divider()
-    st.subheader("📝 步驟二：設定拆分任務")
-    
-    if st.button("➕ 新增拆分項目 (將插入至最上方)"):
-        add_split_job(total_slides)
+    # --- 步驟二：拆分任務設定區塊 ---
+    with st.container(border=True):
+        c_head1, c_head2 = st.columns([3, 1])
+        c_head1.subheader("📝 步驟二：設定拆分任務")
+        if c_head2.button("➕ 新增拆分任務", type="primary", use_container_width=True):
+            add_split_job(total_slides)
 
-    for i, job in enumerate(st.session_state.split_jobs):
-        with st.container():
-            st.markdown(f"#### 🔽 任務編輯區塊") 
-            c1, c2, c3, c4 = st.columns([2, 1, 1, 0.5])
-            job["filename"] = c1.text_input("檔名", value=job["filename"], key=f"f_{job['id']}", placeholder="例如: MT1_Demo")
-            job["start"] = c2.number_input("開始", 1, total_slides, job["start"], key=f"s_{job['id']}")
-            job["end"] = c3.number_input("結束", 1, total_slides, job["end"], key=f"e_{job['id']}")
-            
-            if c4.button("🗑️", key=f"d_{job['id']}"):
-                remove_split_job(i)
-                st.rerun()
-            
-            m1, m2, m3, m4 = st.columns(4)
-            job["category"] = m1.selectbox("Category", ["清潔", "配送", "購物", "AURO"], key=f"cat_{job['id']}")
-            job["subcategory"] = m2.text_input("SubCategory", value=job["subcategory"], key=f"sub_{job['id']}")
-            job["client"] = m3.text_input("Client", value=job["client"], key=f"cli_{job['id']}")
-            job["keywords"] = m4.text_input("Keywords", value=job["keywords"], key=f"key_{job['id']}")
-            st.markdown("---")
-
-    if st.session_state.current_file_name:
-        save_history(st.session_state.current_file_name, st.session_state.split_jobs)
-
-    # 4. 執行選項
-    st.markdown("##### ⚙️ 執行選項")
-    # debug_mode = st.checkbox("🛠️ 僅產生本地拆分檔供檢查 (不上傳雲端)", value=False) # [移除] 正式版移除此選項
-    auto_clean = st.checkbox("✅ 任務完成後，自動刪除所有中間暫存檔 (釋放空間)", value=True)
-
-    # 5. 執行按鈕
-    if st.button("🚀 開始自動化排程", type="primary"):
         if not st.session_state.split_jobs:
-            st.error("請至少設定一個拆分任務！")
-        else:
-            validation_errors = validate_jobs(st.session_state.split_jobs, total_slides)
-            
-            if validation_errors:
-                for err in validation_errors:
-                    st.error(err)
-                st.error("⛔️ 請修正上述錯誤後再重新開始。")
+            st.info("☝️ 尚未建立任務，請點擊上方按鈕新增。")
+
+        for i, job in enumerate(st.session_state.split_jobs):
+            with st.container(border=True):
+                st.markdown(f"#### 📄 任務 {i+1}")
+                c1, c2, c3, c4 = st.columns([3, 1.2, 1.2, 0.6])
+                job["filename"] = c1.text_input("拆分後檔名 (必填)", value=job["filename"], key=f"f_{job['id']}", placeholder="例如: MT1_Demo_清潔案例")
+                job["start"] = c2.number_input("起始頁", 1, total_slides, job["start"], key=f"s_{job['id']}")
+                job["end"] = c3.number_input("結束頁", 1, total_slides, job["end"], key=f"e_{job['id']}")
+                
+                c4.write("") 
+                c4.write("")
+                if c4.button("🗑️ 刪除", key=f"d_{job['id']}", type="secondary"):
+                    remove_split_job(i)
+                    st.rerun()
+                
+                m1, m2, m3, m4 = st.columns(4)
+                job["category"] = m1.selectbox("類型 (Category)", ["清潔", "配送", "購物", "AURO"], key=f"cat_{job['id']}")
+                job["subcategory"] = m2.text_input("子分類 (SubCategory)", value=job["subcategory"], key=f"sub_{job['id']}")
+                job["client"] = m3.text_input("客戶 (Client)", value=job["client"], key=f"cli_{job['id']}")
+                job["keywords"] = m4.text_input("關鍵字 (Keywords)", value=job["keywords"], key=f"key_{job['id']}")
+
+        if st.session_state.current_file_name:
+            save_history(st.session_state.current_file_name, st.session_state.split_jobs)
+
+    # --- 執行區塊 ---
+    with st.container(border=True):
+        st.subheader("🚀 開始執行")
+        col_opt, col_btn = st.columns([3, 1])
+        auto_clean = col_opt.checkbox("✅ 任務完成後，自動刪除中間暫存檔 (釋放空間)", value=True)
+
+        if col_btn.button("執行自動化排程", type="primary", use_container_width=True):
+            if not st.session_state.split_jobs:
+                st.error("請至少設定一個拆分任務！")
             else:
-                if 'bot' not in st.session_state or not st.session_state.bot:
-                     st.error("❌ 程式無法執行：機器人未正確初始化 (憑證錯誤)。")
-                     st.stop()
-                     
-                bot = st.session_state.bot
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                step1_info = st.empty()
-                step1_bar = st.empty()
-                step4_info = st.empty()
-                step4_bar = st.empty()
-
-                sorted_jobs = sorted(st.session_state.split_jobs, key=lambda x: x['start'])
-                
-                # --- 回調函式定義區 ---
-                def step1_log_handler(msg):
-                    status_text.text(f"Step 1/5: {msg}")
-                    st.toast(msg, icon="ℹ️")
-
-                def update_step1_progress(filename, current, total):
-                    pct = current / total
-                    mb_current = current / (1024 * 1024)
-                    mb_total = total / (1024 * 1024)
-                    step1_info.markdown(f"**正在上傳影片: `{filename}`** ({mb_current:.2f} MB / {mb_total:.2f} MB)")
-                    step1_bar.progress(pct)
-
-                def step4_log_handler(msg):
-                    status_text.text(f"Step 4/5: {msg}")
-
-                def update_step4_progress(filename, current, total):
-                    pct = current / total
-                    mb_current = current / (1024 * 1024)
-                    mb_total = total / (1024 * 1024)
-                    step4_info.markdown(f"**正在上傳簡報: `{filename}`** ({mb_current:.2f} MB / {mb_total:.2f} MB)")
-                    step4_bar.progress(pct)
-
-                def step5_log_handler(msg):
-                    status_text.text(f"Step 5/5: {msg}")
-                
-                def step6_log_handler(msg):
-                    status_text.text(f"Final: {msg}")
-
-                try:
-                    # === Step 1 ===
-                    status_text.text(f"Step 1/5: 正在提取並上傳影片...")
-                    video_map = bot.extract_and_upload_videos(
-                        source_path, 
-                        os.path.join(WORK_DIR, "media"), 
-                        file_prefix=file_prefix,
-                        progress_callback=update_step1_progress,
-                        log_callback=step1_log_handler
+                validation_errors = validate_jobs(st.session_state.split_jobs, total_slides)
+                if validation_errors:
+                    for err in validation_errors:
+                        st.error(err)
+                    st.error("⛔️ 請修正上述錯誤後再繼續。")
+                else:
+                    if 'bot' not in st.session_state or not st.session_state.bot:
+                         st.error("❌ 程式無法執行：機器人未正確初始化 (憑證錯誤)。請檢查 Secrets 設定。")
+                         st.stop()
+                    
+                    # 呼叫獨立的執行函式 (這樣就不會因為縮排太深而出錯了)
+                    execute_automation_logic(
+                        st.session_state.bot,
+                        os.path.join(WORK_DIR, "source.pptx"),
+                        os.path.splitext(st.session_state.current_file_name)[0],
+                        st.session_state.split_jobs,
+                        auto_clean
                     )
-                    step1_info.empty()
-                    step1_bar.empty()
-                    progress_bar.progress(20)
-                    
-                    # === Step 2 ===
-                    status_text.text("Step 2/5: 正在置換 PPT 影片...")
-                    mod_path = os.path.join(WORK_DIR, "modified.pptx")
-                    bot.replace_videos_with_images(source_path, mod_path, video_map)
-                    progress_bar.progress(40)
-                    
-                    # === Step 3 ===
-                    status_text.text("Step 3/5: 正在進行檔案瘦身...")
-                    slim_path = os.path.join(WORK_DIR, "slim.pptx")
-                    bot.shrink_pptx(mod_path, slim_path)
-                    progress_bar.progress(50)
-                    
-                    # === Step 4 ===
-                    # 正式模式，強制 debug_mode=False
-                    status_text.text("Step 4/5: 正在拆分並轉換為 Google Slides...")
-
-                    for job in sorted_jobs:
-                        if not job['filename'].endswith('.pptx'):
-                            job['filename'] += '.pptx'
-                            
-                    results = bot.split_and_upload(
-                        slim_path, 
-                        sorted_jobs,
-                        progress_callback=update_step4_progress,
-                        log_callback=step4_log_handler,
-                        debug_mode=False  # <--- 強制關閉 Debug
-                    )
-                    
-                    # 檢查錯誤
-                    oversized_errors = [r for r in results if r.get('error_too_large')]
-                    if oversized_errors:
-                        st.error("⛔️ 偵測到檔案過大錯誤，流程已終止！")
-                        for err_job in oversized_errors:
-                            st.error(f"❌ 任務「{err_job['filename']}」壓縮後仍有 {err_job['size_mb']:.2f} MB，超過 Google 限制 (100MB)。")
-                        st.warning("💡 請回到上方拆分設定，將上述任務拆分成更小的頁數範圍 (例如 10 頁拆成 5+5 頁)，然後重新執行。")
-                        st.stop()
-
-                    step4_info.empty()
-                    step4_bar.empty()
-                    progress_bar.progress(70)
-                    
-                    # === Step 5 ===
-                    status_text.text("Step 5/5: 內嵌優化...")
-                    final_results = bot.embed_videos_in_slides(
-                        results,
-                        log_callback=step5_log_handler
-                    )
-                    progress_bar.progress(85)
-                    
-                    # === Final ===
-                    status_text.text("Final: 寫入資料庫...")
-                    bot.log_to_sheets(
-                        final_results,
-                        log_callback=step6_log_handler
-                    )
-                    progress_bar.progress(100)
-                    
-                    status_text.success("🎉 任務完成！")
-                    st.balloons()
-                    
-                    if auto_clean:
-                        cleanup_workspace()
-                        st.toast("已依您的設定清除暫存檔！", icon="🗑️")
-                    
-                    st.subheader("產出結果 (依頁碼順序)：")
-                    for res in final_results:
-                        if 'final_link' in res:
-                            st.markdown(f"- **{res['filename']}**: [開啟簡報]({res['final_link']})")
-                    
-                except Exception as e:
-                    st.error(f"執行錯誤: {e}")
-                    import traceback
-                    st.code(traceback.format_exc())
