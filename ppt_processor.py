@@ -270,6 +270,7 @@ class PPTAutomationBot:
     def _create_play_icon(self, filename):
         if os.path.exists(filename):
             return
+        # 創建一個簡單的播放圖示 (灰色背景)
         img = Image.new("RGB", (200, 150), color=(100, 100, 100))
         img.save(filename)
 
