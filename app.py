@@ -98,16 +98,25 @@ def validate_jobs(jobs, total_slides):
 st.title("🤖 Aurotek數位資料庫 簡報案例自動化發布平台")
 st.info("功能：自動拆分 PPT -> 影片雲端化 -> 內嵌優化 -> 寫入和椿數位資料庫 Google Sheets")
 
+# --- 修正後的 Bot 初始化邏輯 ---
 if 'split_jobs' not in st.session_state:
     st.session_state.split_jobs = []
+
 if 'bot' not in st.session_state:
     try:
-        if os.path.exists('credentials.json'):
-            st.session_state.bot = PPTAutomationBot()
+        # 直接初始化，不要檢查 credentials.json 檔案是否存在
+        # 因為在雲端環境，檔案是不存在的，而是透過 Secrets 讀取
+        bot_instance = PPTAutomationBot()
+        
+        # 檢查是否成功取得了憑證 (Bot 內部會處理 Secrets 讀取)
+        if bot_instance.creds:
+            st.session_state.bot = bot_instance
         else:
-            st.error("找不到 credentials.json")
+            # 如果連 Secrets 都讀不到，Bot 內部通常已經印出 st.error，這裡做個雙重確認
+            st.warning("⚠️ 系統未檢測到有效憑證，部分功能可能無法使用。")
+            
     except Exception as e:
-        st.warning(f"驗證初始化中... {e}")
+        st.error(f"Bot 初始化失敗: {e}")
 
 if 'current_file_name' not in st.session_state:
     st.session_state.current_file_name = None
@@ -220,6 +229,10 @@ if uploaded_file:
                     st.error(err)
                 st.error("⛔️ 請修正上述錯誤後再重新開始。")
             else:
+                if 'bot' not in st.session_state or not st.session_state.bot:
+                     st.error("❌ 程式無法執行：機器人未正確初始化 (憑證錯誤)。")
+                     st.stop()
+                     
                 bot = st.session_state.bot
                 progress_bar = st.progress(0)
                 status_text = st.empty()
