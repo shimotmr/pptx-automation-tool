@@ -290,11 +290,11 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
 #              Main UI (Layout)
 # ==========================================
 
-# 1. Header: 使用 columns 置中，並將寬度調整為 450px (約 150% 大小)
+# 1. Header: 使用 columns 置中
+# [修正] 將寬度設定為 450px 的一半，即 225px
 c_pad1, c_logo, c_pad2 = st.columns([1, 4, 1])
 with c_logo:
-    # [修正] 將寬度從 600 改為 450
-    st.image(LOGO_URL, width=450)
+    st.image(LOGO_URL, width=225)
     st.markdown("<h3 style='text-align: left; color: gray; margin-top: -10px;'>簡報案例自動化發布平台</h3>", unsafe_allow_html=True)
 
 # 2. 功能說明
