@@ -19,43 +19,63 @@ st.set_page_config(
 # 自定義 CSS 以優化 UI 細節
 st.markdown("""
     <style>
-    /* 調整頂部間距 */
+    /* 1. 調整頂部間距與字體優化 */
     .block-container {
-        padding-top: 1rem !important;
+        padding-top: 3rem !important; 
     }
-    /* 統一標題大小 */
     h3 {
         font-size: 1.5rem !important;
         font-weight: 600 !important;
     }
-    /* 統一子標題大小 */
     h4 {
         font-size: 1.2rem !important;
         font-weight: 600 !important;
         color: #555;
     }
-    /* [修改] 優化進度條文字顯示 (配合深藍色背景，文字維持白色) */
     .stProgress > div > div > div > div {
         color: white;
         font-weight: 500;
     }
-    /* [新增] Header 灰色小字的樣式 */
+
+    /* 2. Logo 置中與大小控制 */
+    /* Streamlit 的圖片容器 */
+    [data-testid="stImage"] {
+        display: flex;
+        justify-content: center; /* 水平置中 */
+        align-items: center;
+    }
+    /* 控制圖片本體 */
+    [data-testid="stImage"] img {
+        width: 300px !important; /* 設定合適寬度 (約原大小 150%) */
+        max-width: 100% !important;
+        object-fit: contain !important;
+    }
+    
+    /* 3. 標題與說明文字樣式 */
     .header-subtitle {
         color: gray;
         font-size: 1.2rem;
         font-weight: 500;
-        display: flex;
-        height: 100%;
-        align-items: center; /* 垂直居中 */
-        margin-left: -20px; /* 微調與 Logo 的距離 */
+        text-align: center; /* 文字置中 */
+        margin-top: 10px;
+        margin-bottom: 30px; /* 增加下方空行 */
+        display: block;
     }
+
+    /* 4. 縮小功能說明區塊文字 */
+    .stAlert p {
+        font-size: 0.9rem !important; /* 縮小字體 */
+        line-height: 1.4 !important;
+    }
+
     /* 手機版調整 */
     @media (max-width: 640px) {
         .header-subtitle {
             font-size: 1rem;
-            margin-left: 0px;
-            margin-top: 10px;
-            justify-content: center; /* 手機上置中 */
+            margin-bottom: 20px;
+        }
+        [data-testid="stImage"] img {
+            width: 200px !important; /* 手機上稍微縮小 */
         }
     }
     </style>
@@ -149,16 +169,12 @@ def validate_jobs(jobs, total_slides):
 #              Core Logic Function
 # ==========================================
 def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
-    # UI 元件準備
     main_progress = st.progress(0, text="準備開始...")
-    status_area = st.empty() # 用於顯示當前大步驟文字
-    
-    # [修改] 使用 st.empty() 來建立一個可替換的空間，確保進度條只會更新，不會疊加
+    status_area = st.empty() 
     detail_bar_placeholder = st.empty()
 
     sorted_jobs = sorted(jobs, key=lambda x: x['start'])
     
-    # --- 回調函式 (Callbacks) - 改為呼叫 placeholder.progress ---
     def update_step1(filename, current, total):
         pct = current / total if total > 0 else 0
         detail_bar_placeholder.progress(pct, text=f"Step 1 詳細進度: 正在上傳 `{filename}` ({int(pct*100)}%)")
@@ -182,9 +198,7 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
     def general_log(msg):
         print(f"[Log] {msg}")
 
-    # --- 開始執行 ---
     try:
-        # === Step 1: 提取與上傳影片 ===
         status_area.info("1️⃣ 步驟 1/5：提取 PPT 內影片並上傳至雲端...")
         main_progress.progress(5, text="Step 1: 影片雲端化")
         video_map = bot.extract_and_upload_videos(
@@ -194,10 +208,8 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
             progress_callback=update_step1,
             log_callback=general_log
         )
-        # [修改] 每個大步驟完成後，清空詳細進度條的位置
         detail_bar_placeholder.empty()
         
-        # === Step 2: 置換為圖片連結 ===
         status_area.info("2️⃣ 步驟 2/5：將 PPT 內的影片替換為雲端連結圖片...")
         main_progress.progress(25, text="Step 2: 連結置換")
         mod_path = os.path.join(WORK_DIR, "modified.pptx")
@@ -209,7 +221,6 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
         )
         detail_bar_placeholder.empty()
         
-        # === Step 3: 檔案瘦身 ===
         status_area.info("3️⃣ 步驟 3/5：進行檔案壓縮與瘦身 (提升解析度)...")
         main_progress.progress(45, text="Step 3: 檔案瘦身")
         slim_path = os.path.join(WORK_DIR, "slim.pptx")
@@ -220,7 +231,6 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
         )
         detail_bar_placeholder.empty()
         
-        # === Step 4: 拆分與上傳 ===
         status_area.info("4️⃣ 步驟 4/5：依設定拆分簡報並上傳至 Google Slides...")
         main_progress.progress(65, text="Step 4: 拆分發布")
         results = bot.split_and_upload(
@@ -232,7 +242,6 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
         )
         detail_bar_placeholder.empty()
         
-        # 檢查 Step 4 錯誤
         oversized_errors = [r for r in results if r.get('error_too_large')]
         if oversized_errors:
             st.error("⛔️ 流程終止：偵測到拆分後的檔案過大。")
@@ -241,7 +250,6 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
             st.warning("💡 建議做法：請減少該任務的頁數範圍，將其拆分為多個小任務後重新執行。")
             return
         
-        # === Step 5: 內嵌優化 ===
         status_area.info("5️⃣ 步驟 5/5：優化線上簡報的影片播放器...")
         main_progress.progress(85, text="Step 5: 內嵌優化")
         final_results = bot.embed_videos_in_slides(
@@ -251,7 +259,6 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
         )
         detail_bar_placeholder.empty()
         
-        # === Final: 寫入資料庫 ===
         status_area.info("📝 最後步驟：將成果寫入 Google Sheets 資料庫...")
         main_progress.progress(95, text="Final: 寫入資料庫")
         bot.log_to_sheets(
@@ -259,17 +266,14 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
             log_callback=general_log
         )
         
-        # 完成
         main_progress.progress(100, text="🎉 任務全部完成！")
         status_area.success("🎉 所有自動化流程執行完畢！")
         st.balloons()
         
-        # 清理
         if auto_clean:
             cleanup_workspace()
             st.toast("已自動清除暫存檔案。", icon="🧹")
         
-        # 顯示結果
         st.divider()
         st.subheader("✅ 產出結果連結")
         result_count = 0
@@ -290,18 +294,11 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
 # ==========================================
 #              Main UI (Layout)
 # ==========================================
-# [修改] Header 區域重構：使用 Columns 將 Logo 與灰色小字並排
-col_logo, col_text = st.columns([1, 2], gap="small")
-with col_logo:
-    # 使用 use_column_width 讓 Logo 盡可能大 (解決第 1 點)
-    st.image(LOGO_URL, use_column_width=True)
-with col_text:
-    # 顯示灰色小字 (解決第 1 點)
-    st.markdown('<div class="header-subtitle">簡報案例自動化發布平台</div>', unsafe_allow_html=True)
+# [更新] Header 區塊：置中 Logo，下方置中標題
+st.image(LOGO_URL)
+st.markdown('<div class="header-subtitle">簡報案例自動化發布平台</div>', unsafe_allow_html=True)
 
-# [修改] 移除原本的大標題 (解決第 2 點)
-# st.title("Aurotek數位資料庫 簡報案例自動化發布平台") <- 已移除
-
+# 功能說明
 st.info("功能說明： 上傳PPT → 線上拆分 → 影片雲端化 → 內嵌優化 → 簡報雲端化 → 寫入和椿資料庫")
 
 if 'split_jobs' not in st.session_state:
@@ -336,7 +333,6 @@ with st.container(border=True):
             saved_jobs = load_history(uploaded_file.name)
             st.session_state.split_jobs = saved_jobs if saved_jobs else []
             
-            # 這裡的進度條也使用 st.empty() 優化
             progress_placeholder = st.empty()
             progress_placeholder.progress(0, text="解析檔案中...")
             
@@ -381,7 +377,6 @@ if st.session_state.current_file_name:
     with st.container(border=True):
         c_head1, c_head2 = st.columns([3, 1])
         c_head1.subheader("📝 步驟二：設定拆分任務")
-        # 手機上按鈕會自動堆疊，不需要額外處理
         if c_head2.button("➕ 新增任務", type="primary", use_container_width=True):
             add_split_job(total_slides)
 
@@ -389,24 +384,20 @@ if st.session_state.current_file_name:
             st.info("☝️ 尚未建立任務，請點擊上方按鈕新增。")
 
         for i, job in enumerate(st.session_state.split_jobs):
-            # 每個任務的卡片容器
             with st.container(border=True):
                 st.markdown(f"**📄 任務 {i+1}**")
                 
-                # 第一行：檔名與頁數 (在手機上 columns 會自動變成垂直堆疊，這裡保持結構即可)
                 c1, c2, c3 = st.columns([3, 1.5, 1.5])
                 job["filename"] = c1.text_input("檔名", value=job["filename"], key=f"f_{job['id']}", placeholder="例如: 清潔案例A")
                 job["start"] = c2.number_input("起始頁", 1, total_slides, job["start"], key=f"s_{job['id']}")
                 job["end"] = c3.number_input("結束頁", 1, total_slides, job["end"], key=f"e_{job['id']}")
                 
-                # 第二行：詳細分類資訊
                 m1, m2, m3, m4 = st.columns(4)
                 job["category"] = m1.selectbox("類型", ["清潔", "配送", "購物", "AURO"], key=f"cat_{job['id']}")
                 job["subcategory"] = m2.text_input("子分類", value=job["subcategory"], key=f"sub_{job['id']}")
                 job["client"] = m3.text_input("客戶", value=job["client"], key=f"cli_{job['id']}")
                 job["keywords"] = m4.text_input("關鍵字", value=job["keywords"], key=f"key_{job['id']}")
                 
-                # 刪除按鈕 (獨立一行，避免在手機上擠壓)
                 if st.button("🗑️ 刪除此任務", key=f"d_{job['id']}", type="secondary"):
                     remove_split_job(i)
                     st.rerun()

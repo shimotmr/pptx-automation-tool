@@ -31,7 +31,7 @@ SCOPES = [
 
 # 請確認這是你的正確 Google Sheet ID
 SPREADSHEET_ID = "1tkLPKqFQld2bCythqNY0CX83w4y1cWZJvW6qErE8vek"
-# [新增] 固定權限管理員字串
+# 固定權限管理員字串
 PERMITTED_ADMINS_STRING = "admin,william,robot,fm,sunny,jason,eq,com,mona"
 
 VIDEO_EXTS = (".mp4", ".mov", ".avi", ".m4v", ".wmv")
@@ -270,7 +270,6 @@ class PPTAutomationBot:
     def _create_play_icon(self, filename):
         if os.path.exists(filename):
             return
-        # 創建一個簡單的播放圖示 (灰色背景)
         img = Image.new("RGB", (200, 150), color=(100, 100, 100))
         img.save(filename)
 
@@ -617,7 +616,6 @@ class PPTAutomationBot:
 
             # Debug Mode (略)
             if debug_mode:
-                # ... (省略 debug 邏輯以保持簡潔，核心邏輯與之前相同) ...
                 results.append(job)
                 continue
 
@@ -817,17 +815,19 @@ class PPTAutomationBot:
                 _log(log_callback, f"⏭️ 任務 {job['filename']} (ID: {job_id}) 已存在於報表中，跳過。")
                 continue
 
-            # [修改] 調整寫入欄位順序與內容
-            # A: ID, B: Category, C: Subcategory, D: Title (檔名), E: Client, F: Link, G: Keywords, H: PermittedAdmins
+            # [修正] 欄位順序: 
+            # id, Category, SubCategory, Region, Client, SlideURL, Keywords, title, PermittedAdmins, CustomThumbnail
             row = [
                 job_id,
                 job.get("category", ""),
                 job.get("subcategory", ""),
-                job["filename"], # Title 欄位填入拆分檔名
+                "", # Region (目前無此欄位，填空)
                 job.get("client", ""),
-                job["final_link"],
+                job["final_link"], # SlideURL
                 job.get("keywords", ""),
-                PERMITTED_ADMINS_STRING # [新增] 固定填入管理員名單
+                job["filename"], # title (檔名)
+                PERMITTED_ADMINS_STRING, # PermittedAdmins
+                ""  # CustomThumbnail (目前無縮圖，填空)
             ]
             values.append(row)
             jobs_to_mark_done.append(job)
@@ -838,7 +838,7 @@ class PPTAutomationBot:
             body = {"values": values}
             self.sheets_service.spreadsheets().values().append(
                 spreadsheetId=SPREADSHEET_ID,
-                range="Presentations!A:H", # [修改] 範圍擴大到 H 欄
+                range="Presentations!A:J", # [修正] 範圍擴大到 J 欄
                 valueInputOption="USER_ENTERED",
                 body=body,
             ).execute()
