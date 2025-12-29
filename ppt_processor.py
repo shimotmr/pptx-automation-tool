@@ -1,849 +1,422 @@
 import streamlit as st
 import os
-import zipfile
-import json
-import re
 import uuid
-import socket
-import io
-import posixpath
-import xml.etree.ElementTree as ET
-from typing import Optional, List, Tuple, Set
-
+import json
+import shutil
+import traceback
 from pptx import Presentation
-from pptx.enum.shapes import MSO_SHAPE_TYPE
-from PIL import Image
+from ppt_processor import PPTAutomationBot
 
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
-from googleapiclient.errors import HttpError
-from google.auth.transport.requests import Request
+# ==========================================
+#              設定頁面與樣式
+# ==========================================
+st.set_page_config(
+    page_title="Aurotek數位資料庫 簡報案例自動化發布平台",
+    page_icon="🤖",
+    layout="wide"
+)
 
-# --- 設定全域超時 (100分鐘) ---
-socket.setdefaulttimeout(6000)
+# 自定義 CSS 以優化 UI 細節
+st.markdown("""
+    <style>
+    /* 1. 調整頂部間距 */
+    .block-container {
+        padding-top: 3rem !important; 
+    }
+    
+    /* 2. 統一標題與文字大小 */
+    h3 {
+        font-size: 1.5rem !important;
+        font-weight: 600 !important;
+    }
+    h4 {
+        font-size: 1.2rem !important;
+        font-weight: 600 !important;
+        color: #555;
+    }
+    
+    /* 3. 進度條文字顏色 */
+    .stProgress > div > div > div > div {
+        color: white;
+        font-weight: 500;
+    }
 
-SCOPES = [
-    "https://www.googleapis.com/auth/drive",
-    "https://www.googleapis.com/auth/presentations",
-    "https://www.googleapis.com/auth/spreadsheets",
-]
+    /* 4. 副標題樣式 */
+    .header-subtitle {
+        color: gray;
+        font-size: 1.2rem;
+        font-weight: 500;
+        margin-top: 5px; 
+        letter-spacing: 1px;
+        line-height: 1.5;
+    }
 
-# 請確認這是你的正確 Google Sheet ID
-SPREADSHEET_ID = "1tkLPKqFQld2bCythqNY0CX83w4y1cWZJvW6qErE8vek"
-# 固定權限管理員字串
-PERMITTED_ADMINS_STRING = "admin,william,robot,fm,sunny,jason,eq,com,mona"
-
-VIDEO_EXTS = (".mp4", ".mov", ".avi", ".m4v", ".wmv")
-IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".tiff", ".bmp")
-
-# Namespaces / rel types
-PKG_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
-OFFICE_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
-PML_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
-CT_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
-
-OFFICE_DOC_REL = f"{OFFICE_NS}/officeDocument"
-SLIDE_REL_TYPE = f"{OFFICE_NS}/slide"
-
-
-def natural_sort_key(s: str):
-    return [int(text) if text.isdigit() else text.lower()
-            for text in re.split(r"([0-9]+)", s)]
-
-
-def _log(log_callback, msg: str):
-    if log_callback:
-        log_callback(msg)
-
-
-def _normalize_part_path(path: str) -> str:
-    path = path.replace("\\", "/").lstrip("/")
-    return posixpath.normpath(path)
-
-
-def _rels_path_for_part(part_path: str) -> str:
-    part_path = _normalize_part_path(part_path)
-    base_dir = posixpath.dirname(part_path)
-    filename = posixpath.basename(part_path)
-    return posixpath.join(base_dir, "_rels", f"{filename}.rels")
+    /* 5. 縮小功能說明區塊文字 */
+    .stAlert p {
+        font-size: 0.9rem !important;
+        line-height: 1.4 !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 
-def _resolve_target(base_part: str, target: str) -> str:
-    target = (target or "").replace("\\", "/")
-    if target.startswith("/"):
-        return _normalize_part_path(target)
-    base_dir = posixpath.dirname(_normalize_part_path(base_part))
-    return _normalize_part_path(posixpath.join(base_dir, target))
+WORK_DIR = "temp_workspace"
+HISTORY_FILE = "job_history.json"
+LOGO_URL = "https://aurotek.com/wp-content/uploads/2025/07/logo.svg"
 
-
-def _read_from_zip(z: zipfile.ZipFile, name: str) -> Optional[bytes]:
-    try:
-        return z.read(name)
-    except KeyError:
-        return None
-
-
-def _is_external_rel(rel_el: ET.Element) -> bool:
-    return rel_el.attrib.get("TargetMode", "").lower() == "external"
-
-
-def _parse_relationship_targets(rels_xml: bytes) -> List[Tuple[str, bool]]:
-    ns = {"r": PKG_REL_NS}
-    root = ET.fromstring(rels_xml)
-    out: List[Tuple[str, bool]] = []
-    for rel in root.findall("r:Relationship", ns):
-        out.append((rel.attrib.get("Target", ""), _is_external_rel(rel)))
-    return out
-
-
-def _strip_video_relationships(rels_xml: bytes) -> bytes:
-    try:
-        ns = {"r": PKG_REL_NS}
-        root = ET.fromstring(rels_xml)
-        changed = False
-
-        for rel in list(root.findall("r:Relationship", ns)):
-            if _is_external_rel(rel):
-                continue
-            target = (rel.attrib.get("Target", "") or "").lower().replace("\\", "/")
-            if target.endswith(VIDEO_EXTS) and (
-                "/media/" in target or target.startswith("../media/") or target.startswith("media/")
-            ):
-                root.remove(rel)
-                changed = True
-
-        if not changed:
-            return rels_xml
-        return ET.tostring(root, encoding="utf-8", xml_declaration=True)
-    except Exception:
-        return rels_xml
-
-
-def _ensure_officedocument_in_root_rels(root_rels_xml: Optional[bytes]) -> bytes:
-    if not root_rels_xml:
-        root = ET.Element("Relationships", xmlns=PKG_REL_NS)
-        ET.SubElement(root, "Relationship", {
-            "Id": "rId1",
-            "Type": OFFICE_DOC_REL,
-            "Target": "ppt/presentation.xml",
-        })
-        return ET.tostring(root, encoding="utf-8", xml_declaration=True)
-
-    try:
-        ns = {"r": PKG_REL_NS}
-        root = ET.fromstring(root_rels_xml)
-
-        for rel in root.findall("r:Relationship", ns):
-            if rel.attrib.get("Type") == OFFICE_DOC_REL:
-                return root_rels_xml
-
-        ET.SubElement(root, "Relationship", {
-            "Id": "rId1",
-            "Type": OFFICE_DOC_REL,
-            "Target": "ppt/presentation.xml",
-        })
-        return ET.tostring(root, encoding="utf-8", xml_declaration=True)
-    except Exception:
-        root = ET.Element("Relationships", xmlns=PKG_REL_NS)
-        ET.SubElement(root, "Relationship", {
-            "Id": "rId1",
-            "Type": OFFICE_DOC_REL,
-            "Target": "ppt/presentation.xml",
-        })
-        return ET.tostring(root, encoding="utf-8", xml_declaration=True)
-
-
-def _used_slide_rids_from_presentation_xml(presentation_xml: bytes) -> Set[str]:
-    ns = {"p": PML_NS, "r": OFFICE_NS}
-    root = ET.fromstring(presentation_xml)
-    used: Set[str] = set()
-
-    for sldId in root.findall(".//p:sldIdLst/p:sldId", ns):
-        rid = sldId.attrib.get(f"{{{OFFICE_NS}}}id")
-        if rid:
-            used.add(rid)
-
-    return used
-
-
-def _rebuild_presentation_rels(pres_rels_xml: bytes, used_slide_rids: Set[str]) -> bytes:
-    ns = {"r": PKG_REL_NS}
-    root = ET.fromstring(pres_rels_xml)
-    changed = False
-
-    for rel in list(root.findall("r:Relationship", ns)):
-        rel_type = rel.attrib.get("Type", "")
-        rel_id = rel.attrib.get("Id", "")
-        if rel_type == SLIDE_REL_TYPE and rel_id not in used_slide_rids:
-            root.remove(rel)
-            changed = True
-
-    if not changed:
-        return pres_rels_xml
-    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
-
-
-def _prune_content_types_overrides(ct_xml: bytes, keep_parts: Set[str]) -> bytes:
-    try:
-        ns = {"ct": CT_NS}
-        root = ET.fromstring(ct_xml)
-        keep_with_slash = {"/" + _normalize_part_path(p) for p in keep_parts}
-
-        changed = False
-        for override in list(root.findall("ct:Override", ns)):
-            part_name = override.attrib.get("PartName", "")
-            if part_name and part_name not in keep_with_slash:
-                root.remove(override)
-                changed = True
-
-        if not changed:
-            return ct_xml
-        return ET.tostring(root, encoding="utf-8", xml_declaration=True)
-    except Exception:
-        return ct_xml
-
-
-class PPTAutomationBot:
-    def __init__(self):
-        self.creds = self._get_credentials()
-        
-        if self.creds:
-            self.drive_service = build("drive", "v3", credentials=self.creds)
-            self.slides_service = build("slides", "v1", credentials=self.creds)
-            self.sheets_service = build("sheets", "v4", credentials=self.creds)
-        else:
-            self.drive_service = None
-            self.slides_service = None
-            self.sheets_service = None
-
-    def _get_credentials(self):
-        creds = None
-        if "google_token" in st.secrets:
-            try:
-                token_info = json.loads(st.secrets["google_token"])
-                creds = Credentials.from_authorized_user_info(token_info, SCOPES)
-            except Exception as e:
-                print(f"雲端 Token 讀取失敗: {e}")
-
-        if not creds and os.path.exists('token.json'):
-            try:
-                creds = Credentials.from_authorized_user_file('token.json', SCOPES)
-            except Exception as e:
-                print(f"本機 token.json 讀取失敗: {e}")
-
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                try:
-                    creds.refresh(Request())
-                except Exception as e:
-                    st.error(f"Token 過期且無法自動刷新: {e}")
-                    return None
-            else:
-                st.error("找不到有效的憑證，請確認已設定 Streamlit Secrets。")
-                return None
-        
-        return creds
-
-    def get_user_email(self):
-        if not self.drive_service:
-            return "服務未初始化"
+# ==========================================
+#              Helper Functions
+# ==========================================
+def cleanup_workspace():
+    """強制刪除工作目錄並重建"""
+    if os.path.exists(WORK_DIR):
         try:
-            about = self.drive_service.about().get(fields="user").execute()
-            return about["user"]["emailAddress"]
-        except Exception:
-            return "未知"
-
-    def _check_drive_file_exists(self, filename):
-        try:
-            query = f"name = '{filename}' and trashed = false"
-            results = self.drive_service.files().list(
-                q=query, spaces="drive", fields="files(id, name, webViewLink)"
-            ).execute()
-            files = results.get("files", [])
-            if files:
-                return files[0].get("id"), files[0].get("webViewLink")
+            shutil.rmtree(WORK_DIR)
         except Exception as e:
-            print(f"查詢 Drive 失敗: {e}")
-        return None
+            print(f"Cleanup warning: {e}")
+    os.makedirs(WORK_DIR)
 
-    def _create_play_icon(self, filename):
-        if os.path.exists(filename):
-            return
-        img = Image.new("RGB", (200, 150), color=(100, 100, 100))
-        img.save(filename)
-
-    # =========================
-    #  核心：拆分後清理邏輯
-    # =========================
-    def _prune_pptx_package_fast(self, pptx_path: str, log_callback=None) -> None:
-        if not os.path.exists(pptx_path):
-            return
-
-        tmp_out = f"{pptx_path}.pruned_{uuid.uuid4().hex[:6]}.pptx"
-
-        with zipfile.ZipFile(pptx_path, "r") as zin:
-            names = set(zin.namelist())
-
-            root_rels_name = "_rels/.rels"
-            root_rels_xml = _read_from_zip(zin, root_rels_name)
-            fixed_root_rels = _ensure_officedocument_in_root_rels(root_rels_xml)
-
-            pres_xml_name = "ppt/presentation.xml"
-            pres_rels_name = "ppt/_rels/presentation.xml.rels"
-
-            pres_xml = _read_from_zip(zin, pres_xml_name)
-            pres_rels_xml = _read_from_zip(zin, pres_rels_name)
-
-            pres_rels_fixed: Optional[bytes] = None
-            if pres_xml and pres_rels_xml:
-                used_slide_rids = _used_slide_rids_from_presentation_xml(pres_xml)
-                pres_rels_clean = _strip_video_relationships(pres_rels_xml)
-                pres_rels_fixed = _rebuild_presentation_rels(pres_rels_clean, used_slide_rids)
-
-            def get_rels_xml(rels_name: str) -> Optional[bytes]:
-                b = _read_from_zip(zin, rels_name)
-                if b is None:
-                    return None
-                if rels_name == pres_rels_name and pres_rels_fixed is not None:
-                    return pres_rels_fixed
-                return _strip_video_relationships(b)
-
-            keep: Set[str] = set()
-            keep.add("[Content_Types].xml")
-            keep.add(root_rels_name)
-
-            queue: List[str] = []
-
-            try:
-                for target, is_ext in _parse_relationship_targets(fixed_root_rels):
-                    if is_ext:
-                        continue
-                    resolved = _resolve_target("", target)
-                    if resolved in names:
-                        if resolved.startswith("ppt/media/") and resolved.lower().endswith(VIDEO_EXTS):
-                            continue
-                        queue.append(resolved)
-            except Exception:
-                pass
-
-            while queue:
-                part = _normalize_part_path(queue.pop())
-                if part in keep:
-                    continue
-                if part.startswith("ppt/media/") and part.lower().endswith(VIDEO_EXTS):
-                    continue
-                if part not in names:
-                    continue
-
-                keep.add(part)
-
-                rels_name = _rels_path_for_part(part)
-                if rels_name in names:
-                    keep.add(rels_name)
-                    rels_xml = get_rels_xml(rels_name)
-                    if rels_xml:
-                        try:
-                            for target, is_ext in _parse_relationship_targets(rels_xml):
-                                if is_ext:
-                                    continue
-                                resolved = _resolve_target(part, target)
-                                if resolved in names:
-                                    if resolved.startswith("ppt/media/") and resolved.lower().endswith(VIDEO_EXTS):
-                                        continue
-                                    queue.append(resolved)
-                        except Exception:
-                            pass
-
-            for maybe in ("docProps/app.xml", "docProps/core.xml"):
-                if maybe in names:
-                    keep.add(maybe)
-                    rels_name = _rels_path_for_part(maybe)
-                    if rels_name in names:
-                        keep.add(rels_name)
-
-            with zipfile.ZipFile(tmp_out, "w", compression=zipfile.ZIP_DEFLATED) as zout:
-                ct_xml = _read_from_zip(zin, "[Content_Types].xml")
-                if ct_xml:
-                    ct_xml2 = _prune_content_types_overrides(ct_xml, keep)
-                    zout.writestr("[Content_Types].xml", ct_xml2)
-
-                zout.writestr(root_rels_name, fixed_root_rels)
-
-                for name in sorted(keep):
-                    if name in ("[Content_Types].xml", root_rels_name):
-                        continue
-                    if name.startswith("ppt/media/") and name.lower().endswith(VIDEO_EXTS):
-                        continue
-                    if name not in names:
-                        continue
-
-                    if name.lower().endswith(".rels"):
-                        b = get_rels_xml(name)
-                        if b is None:
-                            continue
-                        zout.writestr(name, b)
-                    elif name == pres_rels_name and pres_rels_fixed is not None:
-                        zout.writestr(name, pres_rels_fixed)
-                    else:
-                        zout.writestr(name, zin.read(name))
-
-        os.replace(tmp_out, pptx_path)
-        _log(log_callback, f"✅ [Prune] {os.path.basename(pptx_path)}：清理完成。")
-
-    # === Step 1: 提取與上傳影片 ===
-    def extract_and_upload_videos(self, pptx_path, extract_dir, file_prefix="", progress_callback=None, log_callback=None):
-        if not self.drive_service:
-            _log(log_callback, "❌ 服務未初始化，無法上傳影片。")
-            return {}
-
-        if not os.path.exists(extract_dir):
-            os.makedirs(extract_dir)
-
-        safe_prefix = file_prefix if file_prefix else "default"
-        map_filename = f"video_map_{safe_prefix}.json"
-        map_path = map_filename
-
-        video_map = {}
-        if os.path.exists(map_path):
-            try:
-                with open(map_path, "r", encoding="utf-8") as f:
-                    video_map = json.load(f)
-            except Exception:
-                pass
-
-        with zipfile.ZipFile(pptx_path, "r") as z:
-            video_files = [
-                f for f in z.infolist()
-                if f.filename.startswith("ppt/media/")
-                and f.filename.lower().endswith(VIDEO_EXTS)
-            ]
-            video_files.sort(key=lambda f: natural_sort_key(os.path.basename(f.filename)))
-            total_videos = len(video_files)
-
-            _log(log_callback, f"📊 掃描完成：共發現 {total_videos} 個影片檔。")
-
-            for idx, file_info in enumerate(video_files):
-                original_filename = os.path.basename(file_info.filename)
-
-                if original_filename in video_map:
-                    _log(log_callback, f"⏭️ ({idx+1}/{total_videos}) {original_filename} 本地紀錄已存在，跳過。")
-                    continue
-
-                _log(log_callback, f"📦 ({idx+1}/{total_videos}) 正在解壓縮與查重：{original_filename} ...")
-
-                z.extract(file_info, extract_dir)
-                full_path = os.path.join(extract_dir, file_info.filename)
-
-                upload_name = f"[{file_prefix}]_{original_filename}" if file_prefix else original_filename
-
-                existing_file = self._check_drive_file_exists(upload_name)
-                if existing_file:
-                    _, web_link = existing_file
-                    _log(log_callback, f"☁️ ({idx+1}/{total_videos}) 雲端已有檔案：{upload_name}，直接使用！")
-                    video_map[original_filename] = web_link
-                    with open(map_path, "w", encoding="utf-8") as f:
-                        json.dump(video_map, f, indent=4)
-                    continue
-
-                _log(log_callback, f"⬆️ ({idx+1}/{total_videos}) 開始上傳：{upload_name} ...")
-
-                try:
-                    file_metadata = {"name": upload_name}
-                    CHUNK_SIZE = 5 * 1024 * 1024
-                    media = MediaFileUpload(full_path, resumable=True, chunksize=CHUNK_SIZE)
-
-                    request = self.drive_service.files().create(
-                        body=file_metadata, media_body=media, fields="id, webViewLink"
-                    )
-
-                    response = None
-                    while response is None:
-                        status, response = request.next_chunk()
-                        if status and progress_callback:
-                            # 這裡傳遞的是單個檔案的上傳進度
-                            progress_callback(upload_name, int(status.resumable_progress), int(status.total_size))
-
-                    file = response
-                    self.drive_service.permissions().create(
-                        fileId=file.get("id"),
-                        body={"type": "anyone", "role": "reader"},
-                    ).execute()
-
-                    video_map[original_filename] = file.get("webViewLink")
-                    with open(map_path, "w", encoding="utf-8") as f:
-                        json.dump(video_map, f, indent=4)
-
-                except Exception as e:
-                    print(f"上傳失敗: {e}")
-                    pass
-
-        return video_map
-
-    # === Step 2: 置換為圖片連結 (加入進度回報) ===
-    def replace_videos_with_images(self, input_pptx, output_pptx, video_map, progress_callback=None):
-        if os.path.exists(output_pptx):
-            print(f"Step 2: {output_pptx} 已存在，跳過。")
-            return
-
-        icon_path = "play_icon.png"
-        self._create_play_icon(icon_path)
-
-        prs = Presentation(input_pptx)
-        total_slides = len(prs.slides) # 計算總頁數用於進度
-
-        for i, slide in enumerate(prs.slides):
-            # 回報進度
-            if progress_callback:
-                progress_callback(i + 1, total_slides)
-
-            slide_video_filenames = []
-            for rel in slide.part.rels.values():
-                if "media" in rel.target_ref:
-                    fname = os.path.basename(rel.target_ref)
-                    if fname in video_map:
-                        slide_video_filenames.append(fname)
-
-            shapes_to_replace = []
-            for shape in slide.shapes:
-                if shape.shape_type == MSO_SHAPE_TYPE.MEDIA:
-                    target_filename = None
-                    if len(slide_video_filenames) >= 1:
-                        target_filename = slide_video_filenames[0]
-
-                    if target_filename and target_filename in video_map:
-                        shapes_to_replace.append({
-                            "shape": shape,
-                            "link": video_map[target_filename],
-                            "left": shape.left, "top": shape.top,
-                            "width": shape.width, "height": shape.height,
-                        })
-
-            for item in shapes_to_replace:
-                sp = item["shape"]
-                sp.element.getparent().remove(sp.element)
-                pic = slide.shapes.add_picture(
-                    icon_path, item["left"], item["top"], item["width"], item["height"]
-                )
-                pic.click_action.hyperlink.address = item["link"]
-
-        prs.save(output_pptx)
-
-    # === Step 3: 檔案瘦身 (加入進度回報) ===
-    def shrink_pptx(self, input_pptx, output_pptx, progress_callback=None):
-        if os.path.exists(output_pptx):
-            print(f"Step 3: {output_pptx} 已存在，跳過。")
-            return
-
-        print("🚀 開始執行 Step 3: 圖片壓縮 (1280px/Q50)...")
-
-        with zipfile.ZipFile(input_pptx, "r") as zin:
-            # 計算總檔案數用於進度
-            file_list = zin.infolist()
-            total_files = len(file_list)
-
-            with zipfile.ZipFile(output_pptx, "w", compression=zipfile.ZIP_DEFLATED) as zout:
-                for i, item in enumerate(file_list):
-                    # 回報進度
-                    if progress_callback:
-                        progress_callback(i + 1, total_files)
-
-                    name = item.filename
-
-                    # 移除影片實體
-                    if name.startswith("ppt/media/") and name.lower().endswith(VIDEO_EXTS):
-                        continue
-
-                    # 處理圖片
-                    if name.startswith("ppt/media/") and name.lower().endswith(IMAGE_EXTS):
-                        try:
-                            file_data = zin.read(name)
-                            # 小於 50KB 不壓縮
-                            if len(file_data) < 50 * 1024:
-                                zout.writestr(item, file_data)
-                                continue
-
-                            img = Image.open(io.BytesIO(file_data))
-                            
-                            # [規格] 1280px
-                            img.thumbnail((1280, 1280), Image.Resampling.LANCZOS)
-
-                            output_buffer = io.BytesIO()
-                            ext = os.path.splitext(name)[1].lower()
-
-                            # [規格] Quality 50
-                            if ext in (".jpg", ".jpeg"):
-                                img = img.convert("RGB")
-                                img.save(output_buffer, format="JPEG", quality=50, optimize=True)
-                                zout.writestr(name, output_buffer.getvalue())
-                            elif ext == ".png":
-                                img.save(output_buffer, format="PNG", optimize=True)
-                                zout.writestr(name, output_buffer.getvalue())
-                            else:
-                                zout.writestr(item, file_data)
-                            continue
-
-                        except Exception as e:
-                            print(f"   ❌ 壓縮圖片 {name} 失敗: {e}，保留原圖。")
-                            zout.writestr(item, zin.read(name))
-                            continue
-
-                    zout.writestr(item, zin.read(name))
-
-    # === Step 4: 拆分與上傳 (加入前綴處理) ===
-    def split_and_upload(self, slim_pptx, split_jobs, file_prefix="", progress_callback=None, log_callback=None, debug_mode=False):
-        if not self.drive_service:
-            _log(log_callback, "❌ 服務未初始化，無法上傳拆分檔。")
+def load_history(filename):
+    if os.path.exists(HISTORY_FILE):
+        try:
+            with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+                hist = json.load(f)
+                return hist.get(filename, [])
+        except:
             return []
+    return []
 
-        results = []
-        total_jobs = len(split_jobs)
-
-        # Debug 模式目錄 (如果未來需要啟用)
-        debug_dir = "debug_output"
-        if debug_mode and not os.path.exists(debug_dir):
-            os.makedirs(debug_dir)
-
-        for idx, job in enumerate(split_jobs):
-            current_num = idx + 1
-            original_filename = job["filename"]
-            # [新增] 加上前綴的最終顯示檔名
-            display_name = f"[{file_prefix}]_{original_filename}" if file_prefix else original_filename
-            
-            # 確保副檔名
-            if not display_name.endswith('.pptx'):
-                 display_name += ".pptx"
-
-            # Debug Mode (略)
-            if debug_mode:
-                results.append(job)
-                continue
-
-            # 一般模式
-            if job.get("final_link"):
-                _log(log_callback, f"⏭️ ({current_num}/{total_jobs}) {display_name} 本地已完成，跳過。")
-                results.append(job)
-                continue
-
-            existing_file = self._check_drive_file_exists(display_name)
-            if existing_file:
-                file_id, web_link = existing_file
-                _log(log_callback, f"☁️ ({current_num}/{total_jobs}) 雲端已有簡報：{display_name}，直接使用！")
-                job["final_link"] = web_link
-                job["presentation_id"] = file_id
-                results.append(job)
-                continue
-
-            temp_split_name = f"temp_{uuid.uuid4().hex[:6]}.pptx"
-            try:
-                _log(log_callback, f"✂️ ({current_num}/{total_jobs}) 正在拆分：{display_name} ...")
-
-                prs = Presentation(slim_pptx)
-                xml_slides = prs.slides._sldIdLst
-                slides = list(xml_slides)
-                # 轉換為 0-based index
-                keep_indices = set(range(job["start"] - 1, job["end"]))
-
-                # 倒序刪除不需要的投影片
-                for i in range(len(slides) - 1, -1, -1):
-                    if i not in keep_indices:
-                        xml_slides.remove(slides[i])
-
-                prs.save(temp_split_name)
-
-                # 拆分後立刻執行清理
+def save_history(filename, jobs):
+    try:
+        data = {}
+        if os.path.exists(HISTORY_FILE):
+            with open(HISTORY_FILE, "r", encoding="utf-8") as f:
                 try:
-                    self._prune_pptx_package_fast(temp_split_name, log_callback=log_callback)
-                except Exception as e:
-                    _log(log_callback, f"⚠️ [Prune] 失敗但不致命：{e}")
+                    data = json.load(f)
+                except:
+                    data = {}
+        data[filename] = jobs
+        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"History save failed: {e}")
 
-                file_size = os.path.getsize(temp_split_name)
-                size_mb = file_size / (1024 * 1024)
+def add_split_job(total_pages):
+    st.session_state.split_jobs.insert(0, {
+        "id": str(uuid.uuid4())[:8],
+        "filename": "",
+        "start": 1,
+        "end": total_pages,
+        "category": "清潔",
+        "subcategory": "",
+        "client": "",
+        "keywords": ""
+    })
 
-                if size_mb > 99:
-                    error_msg = f"⛔️ 檔案過大：{display_name} 仍有 {size_mb:.2f} MB (超過 100MB 限制)。"
-                    _log(log_callback, error_msg)
-                    job["error_too_large"] = True
-                    job["size_mb"] = size_mb
-                    results.append(job)
-                    continue
+def remove_split_job(index):
+    st.session_state.split_jobs.pop(index)
 
-                _log(log_callback, f"⬆️ ({current_num}/{total_jobs}) 正在上傳：{display_name} (大小: {size_mb:.2f} MB)...")
+def validate_jobs(jobs, total_slides):
+    errors = []
+    for i, job in enumerate(jobs):
+        task_label = f"任務 {i+1} (檔名: {job['filename'] or '未命名'})"
+        if not job['filename'].strip():
+            errors.append(f"❌ {task_label}: 檔案名稱不能為空。")
+        if job['start'] > job['end']:
+            errors.append(f"❌ {task_label}: 起始頁 ({job['start']}) 不能大於 結束頁 ({job['end']})。")
+        if job['end'] > total_slides:
+            errors.append(f"❌ {task_label}: 結束頁 ({job['end']}) 超出了簡報總頁數 ({total_slides})。")
 
-                file_metadata = {"name": display_name, "mimeType": "application/vnd.google-apps.presentation"}
-
-                CHUNK_SIZE = 5 * 1024 * 1024
-                media = MediaFileUpload(
-                    temp_split_name,
-                    mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                    resumable=True,
-                    chunksize=CHUNK_SIZE,
-                )
-
-                request = self.drive_service.files().create(
-                    body=file_metadata, media_body=media, fields="id, webViewLink"
-                )
-
-                response = None
-                while response is None:
-                    status, response = request.next_chunk()
-                    if status and progress_callback:
-                        # 回報單檔上傳進度
-                        progress_callback(display_name, int(status.resumable_progress), int(status.total_size))
-
-                file = response
-                self.drive_service.permissions().create(
-                    fileId=file.get("id"), body={"type": "anyone", "role": "reader"}
-                ).execute()
-
-                job["final_link"] = file.get("webViewLink")
-                job["presentation_id"] = file.get("id")
-                results.append(job)
-
-            except Exception as e:
-                print(f"上傳失敗: {e}")
-                results.append(job)
-            finally:
-                if os.path.exists(temp_split_name):
-                    os.remove(temp_split_name)
-
-        return results
-
-    # === Step 5: 內嵌優化 (加入進度回報) ===
-    def embed_videos_in_slides(self, processed_jobs, progress_callback=None, log_callback=None, debug_mode=False):
-        if debug_mode:
-            return processed_jobs
+    sorted_jobs = sorted(jobs, key=lambda x: x['start'])
+    for i in range(len(sorted_jobs) - 1):
+        current_job = sorted_jobs[i]
+        next_job = sorted_jobs[i+1]
         
-        if not self.slides_service:
-            return processed_jobs
+        if current_job['end'] >= next_job['start']:
+            conflict_msg = (
+                f"⚠️ 發現頁數重疊！\n"
+                f"   - {current_job['filename']} (範圍 {current_job['start']}-{current_job['end']})\n"
+                f"   - {next_job['filename']} (範圍 {next_job['start']}-{next_job['end']})\n"
+                f"   請確認是否重複包含了第 {next_job['start']} 到 {current_job['end']} 頁。"
+            )
+            errors.append(conflict_msg)
 
-        jobs_to_process = [j for j in processed_jobs if "presentation_id" in j]
-        total_jobs = len(jobs_to_process)
-        count = 0
+    return errors
 
-        for job in jobs_to_process:
-            count += 1
-            # 回報進度
-            if progress_callback:
-                progress_callback(count, total_jobs)
+# ==========================================
+#              Core Logic Function
+# ==========================================
+def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
+    main_progress = st.progress(0, text="準備開始...")
+    status_area = st.empty() 
+    detail_bar_placeholder = st.empty()
 
-            pid = job["presentation_id"]
-            _log(log_callback, f"🔧 ({count}/{total_jobs}) 正在優化播放器：{job['filename']} ...")
+    sorted_jobs = sorted(jobs, key=lambda x: x['start'])
+    
+    def update_step1(filename, current, total):
+        pct = current / total if total > 0 else 0
+        detail_bar_placeholder.progress(pct, text=f"Step 1 詳細進度: 正在上傳 `{filename}` ({int(pct*100)}%)")
 
-            try:
-                presentation = self.slides_service.presentations().get(presentationId=pid).execute()
-                requests = []
+    def update_step2(current, total):
+        pct = current / total if total > 0 else 0
+        detail_bar_placeholder.progress(pct, text=f"Step 2 詳細進度: 處理投影片 {current}/{total} ({int(pct*100)}%)")
 
-                for slide in presentation.get("slides", []):
-                    page_id = slide["objectId"]
-                    for element in slide.get("pageElements", []):
-                        if "image" in element:
-                            url = element["image"].get("imageProperties", {}).get("link", {}).get("url", "")
-                            if "drive.google.com" in url:
-                                match = re.search(r"/file/d/([a-zA-Z0-9-_]+)", url)
-                                if match:
-                                    vid_id = match.group(1)
-                                    requests.append({
-                                        "createVideo": {
-                                            "source": "DRIVE",
-                                            "id": vid_id,
-                                            "elementProperties": {
-                                                "pageObjectId": page_id,
-                                                "size": element.get("size"),
-                                                "transform": element.get("transform"),
-                                            },
-                                        }
-                                    })
-                                    requests.append({"deleteObject": {"objectId": element["objectId"]}})
+    def update_step3(current, total):
+        pct = current / total if total > 0 else 0
+        detail_bar_placeholder.progress(pct, text=f"Step 3 詳細進度: 處理內部檔案 {current}/{total} ({int(pct*100)}%)")
 
-                if requests:
-                    self.slides_service.presentations().batchUpdate(
-                        presentationId=pid, body={"requests": requests}
-                    ).execute()
+    def update_step4(filename, current, total):
+        pct = current / total if total > 0 else 0
+        detail_bar_placeholder.progress(pct, text=f"Step 4 詳細進度: 正在上傳 `{filename}` ({int(pct*100)}%)")
 
-            except Exception as e:
-                print(f"優化失敗: {e}")
+    def update_step5(current, total):
+        pct = current / total if total > 0 else 0
+        detail_bar_placeholder.progress(pct, text=f"Step 5 詳細進度: 優化任務 {current}/{total} ({int(pct*100)}%)")
+    
+    def general_log(msg):
+        print(f"[Log] {msg}")
 
-        return processed_jobs
-
-    # === Step 6: 寫入 Google Sheet (欄位調整) ===
-    def log_to_sheets(self, completed_jobs, log_callback=None, debug_mode=False):
-        if debug_mode:
+    try:
+        status_area.info("1️⃣ 步驟 1/5：提取 PPT 內影片並上傳至雲端...")
+        main_progress.progress(5, text="Step 1: 影片雲端化")
+        video_map = bot.extract_and_upload_videos(
+            source_path, 
+            os.path.join(WORK_DIR, "media"), 
+            file_prefix=file_prefix,
+            progress_callback=update_step1,
+            log_callback=general_log
+        )
+        detail_bar_placeholder.empty()
+        
+        status_area.info("2️⃣ 步驟 2/5：將 PPT 內的影片替換為雲端連結圖片...")
+        main_progress.progress(25, text="Step 2: 連結置換")
+        mod_path = os.path.join(WORK_DIR, "modified.pptx")
+        bot.replace_videos_with_images(
+            source_path, 
+            mod_path, 
+            video_map,
+            progress_callback=update_step2
+        )
+        detail_bar_placeholder.empty()
+        
+        status_area.info("3️⃣ 步驟 3/5：進行檔案壓縮與瘦身 (提升解析度)...")
+        main_progress.progress(45, text="Step 3: 檔案瘦身")
+        slim_path = os.path.join(WORK_DIR, "slim.pptx")
+        bot.shrink_pptx(
+            mod_path, 
+            slim_path,
+            progress_callback=update_step3
+        )
+        detail_bar_placeholder.empty()
+        
+        status_area.info("4️⃣ 步驟 4/5：依設定拆分簡報並上傳至 Google Slides...")
+        main_progress.progress(65, text="Step 4: 拆分發布")
+        results = bot.split_and_upload(
+            slim_path, 
+            sorted_jobs,
+            file_prefix=file_prefix,
+            progress_callback=update_step4,
+            log_callback=general_log
+        )
+        detail_bar_placeholder.empty()
+        
+        oversized_errors = [r for r in results if r.get('error_too_large')]
+        if oversized_errors:
+            st.error("⛔️ 流程終止：偵測到拆分後的檔案過大。")
+            for err_job in oversized_errors:
+                st.error(f"❌ 任務「{err_job['filename']}」壓縮後仍有 {err_job['size_mb']:.2f} MB，超過 Google 限制 (100MB)。")
+            st.warning("💡 建議做法：請減少該任務的頁數範圍，將其拆分為多個小任務後重新執行。")
             return
         
-        if not self.sheets_service:
-            _log(log_callback, "❌ 服務未初始化，無法寫入試算表。")
-            return
+        status_area.info("5️⃣ 步驟 5/5：優化線上簡報的影片播放器...")
+        main_progress.progress(85, text="Step 5: 內嵌優化")
+        final_results = bot.embed_videos_in_slides(
+            results,
+            progress_callback=update_step5,
+            log_callback=general_log
+        )
+        detail_bar_placeholder.empty()
+        
+        status_area.info("📝 最後步驟：將成果寫入 Google Sheets 資料庫...")
+        main_progress.progress(95, text="Final: 寫入資料庫")
+        bot.log_to_sheets(
+            final_results,
+            log_callback=general_log
+        )
+        
+        main_progress.progress(100, text="🎉 任務全部完成！")
+        status_area.success("🎉 所有自動化流程執行完畢！")
+        st.balloons()
+        
+        if auto_clean:
+            cleanup_workspace()
+            st.toast("已自動清除暫存檔案。", icon="🧹")
+        
+        st.divider()
+        st.subheader("✅ 產出結果連結")
+        result_count = 0
+        for res in final_results:
+            if 'final_link' in res:
+                result_count += 1
+                display_name = f"[{file_prefix}]_{res['filename']}"
+                st.markdown(f"👉 **{display_name}**: [點擊開啟 Google Slides]({res['final_link']})")
+        
+        if result_count == 0:
+            st.warning("沒有產生任何結果，請檢查是否有任務被跳過。")
 
-        existing_ids = set()
-        try:
-            _log(log_callback, "🔍 正在比對 Google Sheet 既有資料，避免重複寫入...")
-            # 讀取 A 欄比對 ID
-            result = self.sheets_service.spreadsheets().values().get(
-                spreadsheetId=SPREADSHEET_ID,
-                range="Presentations!A:A",
-            ).execute()
-            rows = result.get("values", [])
-            for r in rows:
-                if r:
-                    existing_ids.add(r[0])
+    except Exception as e:
+        st.error(f"執行過程中發生錯誤: {e}")
+        with st.expander("查看詳細錯誤資訊"):
+            st.code(traceback.format_exc())
 
-        except HttpError as err:
-            if err.resp.status == 403:
-                current_email = self.get_user_email()
-                error_msg = (
-                    f"⛔️ 權限錯誤 (403)：請將表單分享給此 Email 並設為「編輯者」：\n"
-                    f"👉 {current_email}"
-                )
-                print(error_msg)
-                raise Exception(error_msg)
-            raise err
+# ==========================================
+#              Main UI (Layout)
+# ==========================================
 
-        except Exception as e:
-            print(f"讀取 Sheet 失敗: {e}")
-            raise e
+# [修正] 採用雙層 DIV 結構：
+# 1. 外層 Flex container 負責水平置中。
+# 2. 內層 DIV 強制寬度 700px (手機版 95%)。
+# 3. 圖片寬度 100% 填滿內層，並強制 height auto 以解除限制。
+st.markdown(f"""
+    <div style="display: flex; justify-content: center; width: 100%; margin-bottom: 20px;">
+        <div style="width: 700px; max-width: 95%; text-align: center;">
+            <img src="{LOGO_URL}" style="width: 100% !important; height: auto !important; object-fit: contain;">
+            <div class="header-subtitle">簡報案例自動化發布平台</div>
+        </div>
+    </div>
+    <div style="height: 20px;"></div>
+""", unsafe_allow_html=True)
 
-        values = []
-        jobs_to_mark_done = []
+# 功能說明
+st.info("功能說明： 上傳PPT → 線上拆分 → 影片雲端化 → 內嵌優化 → 簡報雲端化 → 寫入和椿資料庫")
 
-        for job in completed_jobs:
-            if "final_link" not in job:
-                continue
+if 'split_jobs' not in st.session_state:
+    st.session_state.split_jobs = []
 
-            job_id = job.get("id")
-            if job_id in existing_ids:
-                _log(log_callback, f"⏭️ 任務 {job['filename']} (ID: {job_id}) 已存在於報表中，跳過。")
-                continue
-
-            # [修正] 欄位順序: 
-            # id, Category, SubCategory, Region, Client, SlideURL, Keywords, title, PermittedAdmins, CustomThumbnail
-            row = [
-                job_id,
-                job.get("category", ""),
-                job.get("subcategory", ""),
-                "", # Region (目前無此欄位，填空)
-                job.get("client", ""),
-                job["final_link"], # SlideURL
-                job.get("keywords", ""),
-                job["filename"], # title (檔名)
-                PERMITTED_ADMINS_STRING, # PermittedAdmins
-                ""  # CustomThumbnail (目前無縮圖，填空)
-            ]
-            values.append(row)
-            jobs_to_mark_done.append(job)
-
-        if values:
-            _log(log_callback, f"📝 正在寫入 {len(values)} 筆新資料到 Google Sheets...")
-
-            body = {"values": values}
-            self.sheets_service.spreadsheets().values().append(
-                spreadsheetId=SPREADSHEET_ID,
-                range="Presentations!A:J", # [修正] 範圍擴大到 J 欄
-                valueInputOption="USER_ENTERED",
-                body=body,
-            ).execute()
-
-            for job in jobs_to_mark_done:
-                job["logged_to_sheet"] = True
+if 'bot' not in st.session_state:
+    try:
+        bot_instance = PPTAutomationBot()
+        if bot_instance.creds:
+            st.session_state.bot = bot_instance
         else:
-            _log(log_callback, "✅ 所有資料皆已存在於 Sheet 中，同步完成。")
+            st.warning("⚠️ 系統未檢測到有效憑證 (Secrets)。")
+    except Exception as e:
+        st.error(f"Bot 初始化失敗: {e}")
+
+if 'current_file_name' not in st.session_state:
+    st.session_state.current_file_name = None
+if 'ppt_meta' not in st.session_state:
+    st.session_state.ppt_meta = {"total_slides": 0, "preview_data": []}
+
+# --- 上傳區塊 ---
+with st.container(border=True):
+    st.subheader("📂 步驟一：上傳原始簡報")
+    uploaded_file = st.file_uploader("請選擇 PPTX 檔案", type=['pptx'])
+
+    if uploaded_file:
+        file_prefix = os.path.splitext(uploaded_file.name)[0]
+        source_path = os.path.join(WORK_DIR, "source.pptx")
+        
+        if st.session_state.current_file_name != uploaded_file.name:
+            cleanup_workspace()
+            saved_jobs = load_history(uploaded_file.name)
+            st.session_state.split_jobs = saved_jobs if saved_jobs else []
+            
+            progress_placeholder = st.empty()
+            progress_placeholder.progress(0, text="解析檔案中...")
+            
+            try:
+                with open(source_path, "wb") as f:
+                    f.write(uploaded_file.getbuffer())
+                progress_placeholder.progress(40, text="解析內容結構...")
+                
+                prs = Presentation(source_path)
+                total_slides = len(prs.slides)
+                
+                preview_data = []
+                for i, slide in enumerate(prs.slides):
+                    txt = slide.shapes.title.text if (slide.shapes.title and slide.shapes.title.text) else "無標題"
+                    if txt == "無標題":
+                         for s in slide.shapes:
+                            if hasattr(s, "text") and s.text.strip():
+                                txt = s.text.strip()[:20] + "..."
+                                break
+                    preview_data.append({"頁碼": i+1, "內容摘要": txt})
+                
+                st.session_state.ppt_meta["total_slides"] = total_slides
+                st.session_state.ppt_meta["preview_data"] = preview_data
+                st.session_state.current_file_name = uploaded_file.name
+                
+                progress_placeholder.progress(100, text="完成！")
+                st.success(f"✅ 已讀取：{uploaded_file.name} (共 {total_slides} 頁)")
+                
+            except Exception as e:
+                st.error(f"檔案處理失敗: {e}")
+                st.session_state.current_file_name = None
+                st.stop()
+
+if st.session_state.current_file_name:
+    total_slides = st.session_state.ppt_meta["total_slides"]
+    preview_data = st.session_state.ppt_meta["preview_data"]
+
+    with st.expander("👁️ 點擊查看「頁碼與標題對照表」", expanded=False):
+        st.dataframe(preview_data, use_container_width=True, height=250, hide_index=True)
+
+    # --- 拆分任務區塊 ---
+    with st.container(border=True):
+        c_head1, c_head2 = st.columns([3, 1])
+        c_head1.subheader("📝 步驟二：設定拆分任務")
+        if c_head2.button("➕ 新增任務", type="primary", use_container_width=True):
+            add_split_job(total_slides)
+
+        if not st.session_state.split_jobs:
+            st.info("☝️ 尚未建立任務，請點擊上方按鈕新增。")
+
+        for i, job in enumerate(st.session_state.split_jobs):
+            with st.container(border=True):
+                st.markdown(f"**📄 任務 {i+1}**")
+                
+                c1, c2, c3 = st.columns([3, 1.5, 1.5])
+                job["filename"] = c1.text_input("檔名", value=job["filename"], key=f"f_{job['id']}", placeholder="例如: 清潔案例A")
+                job["start"] = c2.number_input("起始頁", 1, total_slides, job["start"], key=f"s_{job['id']}")
+                job["end"] = c3.number_input("結束頁", 1, total_slides, job["end"], key=f"e_{job['id']}")
+                
+                m1, m2, m3, m4 = st.columns(4)
+                job["category"] = m1.selectbox("類型", ["清潔", "配送", "購物", "AURO"], key=f"cat_{job['id']}")
+                job["subcategory"] = m2.text_input("子分類", value=job["subcategory"], key=f"sub_{job['id']}")
+                job["client"] = m3.text_input("客戶", value=job["client"], key=f"cli_{job['id']}")
+                job["keywords"] = m4.text_input("關鍵字", value=job["keywords"], key=f"key_{job['id']}")
+                
+                if st.button("🗑️ 刪除此任務", key=f"d_{job['id']}", type="secondary"):
+                    remove_split_job(i)
+                    st.rerun()
+
+        if st.session_state.current_file_name:
+            save_history(st.session_state.current_file_name, st.session_state.split_jobs)
+
+    # --- 執行區塊 ---
+    with st.container(border=True):
+        st.subheader("🚀 開始執行")
+        auto_clean = st.checkbox("任務完成後自動清除暫存檔", value=True)
+
+        if st.button("執行自動化排程", type="primary", use_container_width=True):
+            if not st.session_state.split_jobs:
+                st.error("請至少設定一個拆分任務！")
+            else:
+                validation_errors = validate_jobs(st.session_state.split_jobs, total_slides)
+                if validation_errors:
+                    for err in validation_errors:
+                        st.error(err)
+                    st.error("⛔️ 請修正錯誤後繼續。")
+                else:
+                    if 'bot' not in st.session_state or not st.session_state.bot:
+                         st.error("❌ 機器人未初始化 (憑證錯誤)，請檢查 Secrets。")
+                         st.stop()
+                    
+                    execute_automation_logic(
+                        st.session_state.bot,
+                        os.path.join(WORK_DIR, "source.pptx"),
+                        os.path.splitext(st.session_state.current_file_name)[0],
+                        st.session_state.split_jobs,
+                        auto_clean
+                    )
