@@ -319,7 +319,7 @@ with col2:
     )
 
     # LOGO：固定約 300px
-    st.image(LOGO_URL, width=300)
+    st.image(LOGO_URL, width=100)
 
     # 副標題：與 LOGO 同一個中軸
     st.markdown(
