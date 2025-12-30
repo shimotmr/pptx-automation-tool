@@ -1,10 +1,12 @@
-# Version: v0.7
+# Version: v0.8
 # Update Log:
-# 1. Auto-scroll to bottom during execution.
-# 2. Success message format changed (No emoji, Bold text).
-# 3. Implemented Copy-Link Icon Button (No URL text shown).
-# 4. "Start New Project" button is now Red and correctly resets to Step 1.
-# 5. Fixed File Uploader UI issues.
+# 1. Fixed double/red browse button issues.
+# 2. Task deletion is now an inline trash icon.
+# 3. Removed all emojis from headers and success messages.
+# 4. Success message is now Blue background with bold "Success:".
+# 5. Result list is compact and enclosed in a card.
+# 6. "Reset" button now correctly clears the file uploader and task list.
+# 7. Auto-scroll enabled upon execution.
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -42,10 +44,10 @@ header[data-testid="stHeader"] { display: none; }
 /* 2. 調整頂部間距 */
 .block-container {
     padding-top: 1rem !important;
-    padding-bottom: 5rem !important; /* 底部留白給自動滾動 */
+    padding-bottom: 5rem !important;
 }
 
-/* 3. 上傳元件中文化 & UI 修復 */
+/* 3. 上傳元件中文化 & 按鈕樣式修復 (回到中性色) */
 [data-testid="stFileUploaderDropzoneInstructions"] > div:first-child { display: none !important; }
 [data-testid="stFileUploaderDropzoneInstructions"] > div:nth-child(2) { display: none !important; }
 
@@ -67,6 +69,7 @@ header[data-testid="stHeader"] { display: none; }
     line-height: 1.2;
 }
 
+/* 確保按鈕是標準樣式，不是紅色 */
 [data-testid="stFileUploader"] button { 
     font-size: 0 !important;
     line-height: 0 !important;
@@ -78,7 +81,8 @@ header[data-testid="stHeader"] { display: none; }
     min-height: 38px !important;
     padding: 0 15px !important;
     overflow: visible !important;
-    border: 1px solid #e0e0e0;
+    border: 1px solid #d0d7de;
+    background-color: #ffffff;
 }
 
 [data-testid="stFileUploader"] button::after {
@@ -95,12 +99,12 @@ header[data-testid="stHeader"] { display: none; }
     display: block;
 }
 
-/* 4. 統一字體與標題樣式 */
-h3 { font-size: 1.2rem !important; font-weight: 600 !important; color: #31333F; margin-bottom: 0.5rem;}
+/* 4. 統一字體與標題樣式 (去除 Emoji 風格) */
+h3 { font-size: 1.25rem !important; font-weight: 700 !important; color: #31333F; margin-bottom: 0.5rem;}
 h4 { font-size: 1.1rem !important; font-weight: 600 !important; color: #555; }
 .stProgress > div > div > div > div { color: white; font-weight: 500; }
 
-/* 5. 統一提示詞顏色 (藍色風格) */
+/* 5. 統一提示詞顏色 (強制藍色風格，覆蓋綠色 Success) */
 div[data-testid="stAlert"][data-style="success"],
 div[data-testid="stAlert"][data-style="info"] {
     background-color: #F0F2F6 !important;
@@ -115,8 +119,7 @@ div[data-testid="stAlert"] svg {
     line-height: 1.4 !important;
 }
 
-/* 6. [新增] 紅色重置按鈕樣式 */
-/* 透過 CSS 選取器鎖定最後一個按鈕並變色 */
+/* 6. 紅色重置按鈕樣式 (針對最後一個 Secondary 按鈕) */
 button[kind="secondary"]:last-of-type {
     border-color: #ffcccc !important;
     color: #cc0000 !important;
@@ -125,6 +128,16 @@ button[kind="secondary"]:last-of-type {
 button[kind="secondary"]:last-of-type:hover {
     border-color: #cc0000 !important;
     background-color: #ffe6e6 !important;
+}
+
+/* 7. 垃圾桶按鈕微調 (使其緊湊) */
+div[data-testid="stHorizontalBlock"] > div:nth-child(2) button {
+    border: none;
+    background: transparent;
+    color: #666;
+}
+div[data-testid="stHorizontalBlock"] > div:nth-child(2) button:hover {
+    color: #cc0000;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -147,7 +160,7 @@ def reset_session():
     st.session_state.split_jobs = []
     st.session_state.current_file_name = None
     st.session_state.ppt_meta = {"total_slides": 0, "preview_data": []}
-    # [關鍵] 更新 uploader_key 以強制重置上傳元件
+    # [關鍵修正] 更新 uploader_key，這會強制重繪 file_uploader，清除已選檔案
     st.session_state.uploader_key += 1
     st.rerun()
 
@@ -230,7 +243,7 @@ def download_file_from_url(url, dest_path):
     except Exception as e:
         return False, str(e)
 
-# [新增] 用於自動滾動的 JS 元件
+# [新增] 自動滾動 JS
 def auto_scroll():
     components.html(
         """
@@ -242,9 +255,8 @@ def auto_scroll():
         width=0,
     )
 
-# [新增] 複製按鈕的 HTML 元件
+# [新增] 複製按鈕 HTML
 def copy_button_html(text):
-    # 使用 document.execCommand('copy') 以確保相容性
     return f"""
     <html>
     <head>
@@ -254,21 +266,14 @@ def copy_button_html(text):
         border: 1px solid #e0e0e0;
         border-radius: 4px;
         cursor: pointer;
-        padding: 5px 10px;
-        font-size: 14px;
+        padding: 4px 8px;
+        font-size: 13px;
         display: flex;
         align-items: center;
-        transition: all 0.2s;
         color: #555;
+        font-family: sans-serif;
     }}
-    .copy-btn:hover {{
-        background-color: #f0f2f6;
-        border-color: #d0d7de;
-        color: #31333F;
-    }}
-    .copy-btn:active {{
-        background-color: #e0e0e0;
-    }}
+    .copy-btn:hover {{ background-color: #f0f2f6; color: #31333F; }}
     </style>
     <script>
     function copyText() {{
@@ -294,39 +299,40 @@ def copy_button_html(text):
 #              Core Logic Function
 # ==========================================
 def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
+    # [UI修正] 自動滾動
+    auto_scroll()
+    
     main_progress = st.progress(0, text="準備開始...")
     status_area = st.empty()
     detail_bar_placeholder = st.empty()
-
-    # 自動滾動到底部
-    auto_scroll()
 
     sorted_jobs = sorted(jobs, key=lambda x: x['start'])
 
     def update_step1(filename, current, total):
         pct = current / total if total > 0 else 0
-        detail_bar_placeholder.progress(pct, text=f"Step 1 進度: 上傳影片 `{filename}` ({int(pct*100)}%)")
+        detail_bar_placeholder.progress(pct, text=f"Step 1: 上傳影片 `{filename}` ({int(pct*100)}%)")
 
     def update_step2(current, total):
         pct = current / total if total > 0 else 0
-        detail_bar_placeholder.progress(pct, text=f"Step 2 進度: 處理投影片 {current}/{total} ({int(pct*100)}%)")
+        detail_bar_placeholder.progress(pct, text=f"Step 2: 處理投影片 {current}/{total} ({int(pct*100)}%)")
 
     def update_step3(current, total):
         pct = current / total if total > 0 else 0
-        detail_bar_placeholder.progress(pct, text=f"Step 3 進度: 處理內部檔案 {current}/{total} ({int(pct*100)}%)")
+        detail_bar_placeholder.progress(pct, text=f"Step 3: 處理內部檔案 {current}/{total} ({int(pct*100)}%)")
 
     def update_step4(filename, current, total):
         pct = current / total if total > 0 else 0
-        detail_bar_placeholder.progress(pct, text=f"Step 4 進度: 上傳簡報 `{filename}` ({int(pct*100)}%)")
+        detail_bar_placeholder.progress(pct, text=f"Step 4: 上傳簡報 `{filename}` ({int(pct*100)}%)")
 
     def update_step5(current, total):
         pct = current / total if total > 0 else 0
-        detail_bar_placeholder.progress(pct, text=f"Step 5 進度: 優化任務 {current}/{total} ({int(pct*100)}%)")
+        detail_bar_placeholder.progress(pct, text=f"Step 5: 優化任務 {current}/{total} ({int(pct*100)}%)")
 
     def general_log(msg):
         print(f"[Log] {msg}")
 
     try:
+        # [UI修正] 使用 st.info(icon="⏳") 統一藍色風格
         status_area.info("執行中：Step 1/5 - 提取影片並上傳雲端...", icon="⏳")
         main_progress.progress(5, text="Step 1: 影片雲端化")
         auto_scroll()
@@ -404,47 +410,46 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
         bot.log_to_sheets(final_results, log_callback=general_log)
 
         main_progress.progress(100, text="任務完成")
-        # [UI修正 2] 移除 emoji，改用粗體文字
-        status_area.success("**成功：** 所有自動化流程執行完畢。", icon=None)
-        auto_scroll()
-
+        
+        # [UI修正] 成功訊息改為藍色背景 + 粗體文字，無 Emoji
+        status_area.info("**成功：** 所有自動化流程執行完畢。", icon=None)
+        
         if auto_clean:
             cleanup_workspace()
             
-        st.divider()
-        st.subheader("產出結果清單")
+        # [UI修正] 結果清單緊湊化
+        st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True) # 增加一點間距
         
-        # [UI修正 3] 複製連結按鈕化
-        cols = st.columns([4, 2, 2])
-        cols[0].markdown("**檔案名稱**")
-        cols[1].markdown("**線上預覽**")
-        cols[2].markdown("**操作**")
-        st.markdown("---")
-
-        result_count = 0
-        for res in final_results:
-            if 'final_link' in res:
-                result_count += 1
-                display_name = f"[{file_prefix}]_{res['filename']}"
-                link = res['final_link']
-                
-                row = st.columns([4, 2, 2])
-                row[0].text(display_name)
-                row[1].link_button("開啟簡報", link)
-                # 使用 HTML components 渲染複製按鈕
-                with row[2]:
-                    components.html(copy_button_html(link), height=40)
-        
-        if result_count == 0:
-            st.warning("沒有產生任何結果，請檢查是否有任務被跳過。")
-        else:
+        with st.container(border=True):
+            st.subheader("產出結果清單")
+            cols = st.columns([4, 2, 2])
+            cols[0].markdown("**檔案名稱**")
+            cols[1].markdown("**線上預覽**")
+            cols[2].markdown("**操作**")
             st.markdown("---")
-            # [UI修正 4 & 5] 紅色按鈕，且能正確重置回步驟 1
-            if st.button("開始新專案 (清除資料)", type="secondary", use_container_width=True):
-                reset_session()
+
+            result_count = 0
+            for res in final_results:
+                if 'final_link' in res:
+                    result_count += 1
+                    display_name = f"[{file_prefix}]_{res['filename']}"
+                    link = res['final_link']
+                    
+                    row = st.columns([4, 2, 2])
+                    row[0].text(display_name)
+                    row[1].link_button("開啟簡報", link)
+                    with row[2]:
+                        components.html(copy_button_html(link), height=40)
             
-            # 強制滾動到最底端以顯示按鈕
-            auto_scroll()
+            if result_count == 0:
+                st.warning("沒有產生任何結果，請檢查是否有任務被跳過。")
+
+        st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
+        # [UI修正] 紅色重置按鈕
+        if st.button("清除任務，上傳新簡報", type="secondary", use_container_width=True):
+            reset_session()
+        
+        auto_scroll()
 
     except Exception as e:
         st.error(f"執行過程中發生錯誤: {e}")
@@ -457,7 +462,7 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
 
 os.makedirs(WORK_DIR, exist_ok=True)
 
-# [Key管理] 初始化 uploader_key 用於重置
+# [Key管理] 初始化 uploader_key 用於重置 (必須在 file_uploader 之前)
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
 
@@ -520,6 +525,7 @@ if 'ppt_meta' not in st.session_state:
 
 # 4. 檔案來源選擇區塊
 with st.container(border=True):
+    # [UI修正] 去除 emoji，統一標題風格
     st.subheader("步驟一：選擇檔案來源")
 
     input_method = st.radio("上傳方式", ["本地檔案", "線上檔案"], horizontal=True)
@@ -530,23 +536,19 @@ with st.container(border=True):
 
     # --- 本地檔案上傳 ---
     if input_method == "本地檔案":
-        # 使用 dynamic key 來支援重置功能
         uploaded_file = st.file_uploader(
             "請選擇 PPTX 檔案", 
             type=['pptx'], 
             label_visibility="collapsed",
-            key=f"uploader_{st.session_state.uploader_key}"
+            key=f"uploader_{st.session_state.uploader_key}" # 動態 Key
         )
         if uploaded_file:
             file_name_for_logic = uploaded_file.name
             
-            # [修正] 邏輯順序：新檔案 -> 清理 -> 寫入
             if st.session_state.current_file_name != file_name_for_logic:
                 cleanup_workspace()
                 with open(source_path, "wb") as f:
                     f.write(uploaded_file.getbuffer())
-            
-            # 檔案遺失補救
             elif not os.path.exists(source_path):
                  with open(source_path, "wb") as f:
                     f.write(uploaded_file.getbuffer())
@@ -566,9 +568,8 @@ with st.container(border=True):
             if not fake_name.lower().endswith(".pptx"):
                 fake_name += ".pptx"
 
-            if st.button("📥 下載並處理此網址"):
+            if st.button("下載並處理此網址"):
                 with st.spinner("正在從網址下載檔案..."):
-                    # [修正] 下載前先清理
                     cleanup_workspace()
                     success, error = download_file_from_url(url_input, source_path)
                     if success:
@@ -607,7 +608,7 @@ with st.container(border=True):
                 st.session_state.current_file_name = file_name_for_logic
 
                 progress_placeholder.progress(100, text="完成！")
-                st.info(f"已讀取：{file_name_for_logic} (共 {total_slides} 頁)", icon="✅")
+                st.info(f"**成功：** 已讀取 {file_name_for_logic} (共 {total_slides} 頁)", icon=None)
 
             except Exception as e:
                 st.error(f"檔案處理失敗: {e}")
@@ -618,28 +619,32 @@ if st.session_state.current_file_name:
     total_slides = st.session_state.ppt_meta["total_slides"]
     preview_data = st.session_state.ppt_meta["preview_data"]
 
-    with st.expander("👁️ 點擊查看「頁碼與標題對照表」", expanded=False):
+    with st.expander("點擊查看「頁碼與標題對照表」", expanded=False):
         st.dataframe(preview_data, use_container_width=True, height=250, hide_index=True)
 
     # --- 拆分任務區塊 ---
     with st.container(border=True):
         c_head1, c_head2 = st.columns([3, 1])
-        c_head1.subheader("步驟二：設定拆分任務")
-        if c_head2.button("➕ 新增任務", type="primary", use_container_width=True):
-            add_split_job(total_slides)
+        st.subheader("步驟二：設定拆分任務") # 去除 Emoji
+        with c_head2:
+            if st.button("➕ 新增任務", type="primary", use_container_width=True):
+                add_split_job(total_slides)
 
         if not st.session_state.split_jobs:
-            st.info("☝️ 尚未建立任務，請點擊上方按鈕新增。")
+            st.info("尚未建立任務，請點擊右上方按鈕新增。")
 
-        # 計算總任務數
         total_jobs_count = len(st.session_state.split_jobs)
 
         for i, job in enumerate(st.session_state.split_jobs):
-            # 顯示倒數編號
             display_number = total_jobs_count - i
             
             with st.container(border=True):
-                st.markdown(f"**📄 任務 {display_number}**")
+                # [UI修正] 標題與垃圾桶按鈕在同一行
+                c_title, c_del = st.columns([0.95, 0.05])
+                c_title.markdown(f"**任務 {display_number}**")
+                if c_del.button("🗑️", key=f"del_{job['id']}"):
+                    remove_split_job(i)
+                    st.rerun()
 
                 c1, c2, c3 = st.columns([3, 1.5, 1.5])
                 job["filename"] = c1.text_input("檔名", value=job["filename"], key=f"f_{job['id']}", placeholder="例如: 清潔案例A")
@@ -652,19 +657,16 @@ if st.session_state.current_file_name:
                 job["client"] = m3.text_input("客戶", value=job["client"], key=f"cli_{job['id']}")
                 job["keywords"] = m4.text_input("關鍵字", value=job["keywords"], key=f"key_{job['id']}")
 
-                if st.button("🗑️ 刪除此任務", key=f"d_{job['id']}", type="secondary"):
-                    remove_split_job(i)
-                    st.rerun()
-
         if st.session_state.current_file_name:
             save_history(st.session_state.current_file_name, st.session_state.split_jobs)
 
     # --- 執行區塊 ---
     with st.container(border=True):
-        st.subheader("🚀 開始執行")
-        auto_clean = st.checkbox("任務完成後自動清除暫存檔", value=True)
-
-        if st.button("執行自動化排程", type="primary", use_container_width=True):
+        st.subheader("步驟三：執行任務") # [UI修正] 統一標題風格
+        
+        # [UI修正] 隱藏了 checkbox，直接在 logic 中預設執行
+        
+        if st.button("執行雲端化任務", type="primary", use_container_width=True):
             if not st.session_state.split_jobs:
                 st.error("請至少設定一個拆分任務！")
             else:
@@ -672,10 +674,10 @@ if st.session_state.current_file_name:
                 if validation_errors:
                     for err in validation_errors:
                         st.error(err)
-                    st.error("⛔️ 請修正錯誤後繼續。")
+                    st.error("請修正錯誤後繼續。")
                 else:
                     if 'bot' not in st.session_state or not st.session_state.bot:
-                        st.error("❌ 機器人未初始化 (憑證錯誤)，請檢查 Secrets。")
+                        st.error("機器人未初始化 (憑證錯誤)，請檢查 Secrets。")
                         st.stop()
 
                     execute_automation_logic(
@@ -683,5 +685,5 @@ if st.session_state.current_file_name:
                         os.path.join(WORK_DIR, "source.pptx"),
                         os.path.splitext(st.session_state.current_file_name)[0],
                         st.session_state.split_jobs,
-                        auto_clean
+                        auto_clean=True # [邏輯修正] 強制啟用
                     )
