@@ -1,12 +1,8 @@
-# Version: v0.8
+# Version: v0.9
 # Update Log:
-# 1. Fixed double/red browse button issues.
-# 2. Task deletion is now an inline trash icon.
-# 3. Removed all emojis from headers and success messages.
-# 4. Success message is now Blue background with bold "Success:".
-# 5. Result list is compact and enclosed in a card.
-# 6. "Reset" button now correctly clears the file uploader and task list.
-# 7. Auto-scroll enabled upon execution.
+# 1. FIXED: "Reset" button now correctly clears ALL input fields and file uploader.
+# 2. Implemented dynamic keys for all input widgets to force refresh on reset.
+# 3. Added logic to clear job_history.json entry on reset to prevent auto-reload.
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -47,7 +43,7 @@ header[data-testid="stHeader"] { display: none; }
     padding-bottom: 5rem !important;
 }
 
-/* 3. 上傳元件中文化 & 按鈕樣式修復 (回到中性色) */
+/* 3. 上傳元件中文化 & 按鈕樣式修復 */
 [data-testid="stFileUploaderDropzoneInstructions"] > div:first-child { display: none !important; }
 [data-testid="stFileUploaderDropzoneInstructions"] > div:nth-child(2) { display: none !important; }
 
@@ -69,7 +65,6 @@ header[data-testid="stHeader"] { display: none; }
     line-height: 1.2;
 }
 
-/* 確保按鈕是標準樣式，不是紅色 */
 [data-testid="stFileUploader"] button { 
     font-size: 0 !important;
     line-height: 0 !important;
@@ -99,12 +94,12 @@ header[data-testid="stHeader"] { display: none; }
     display: block;
 }
 
-/* 4. 統一字體與標題樣式 (去除 Emoji 風格) */
+/* 4. 統一字體與標題樣式 */
 h3 { font-size: 1.25rem !important; font-weight: 700 !important; color: #31333F; margin-bottom: 0.5rem;}
 h4 { font-size: 1.1rem !important; font-weight: 600 !important; color: #555; }
 .stProgress > div > div > div > div { color: white; font-weight: 500; }
 
-/* 5. 統一提示詞顏色 (強制藍色風格，覆蓋綠色 Success) */
+/* 5. 統一提示詞顏色 (藍色風格) */
 div[data-testid="stAlert"][data-style="success"],
 div[data-testid="stAlert"][data-style="info"] {
     background-color: #F0F2F6 !important;
@@ -119,7 +114,7 @@ div[data-testid="stAlert"] svg {
     line-height: 1.4 !important;
 }
 
-/* 6. 紅色重置按鈕樣式 (針對最後一個 Secondary 按鈕) */
+/* 6. 紅色重置按鈕樣式 */
 button[kind="secondary"]:last-of-type {
     border-color: #ffcccc !important;
     color: #cc0000 !important;
@@ -130,7 +125,7 @@ button[kind="secondary"]:last-of-type:hover {
     background-color: #ffe6e6 !important;
 }
 
-/* 7. 垃圾桶按鈕微調 (使其緊湊) */
+/* 7. 垃圾桶按鈕微調 */
 div[data-testid="stHorizontalBlock"] > div:nth-child(2) button {
     border: none;
     background: transparent;
@@ -146,7 +141,6 @@ div[data-testid="stHorizontalBlock"] > div:nth-child(2) button:hover {
 #              Helper Functions
 # ==========================================
 def cleanup_workspace():
-    """清理工作目錄"""
     if os.path.exists(WORK_DIR):
         try:
             shutil.rmtree(WORK_DIR)
@@ -155,13 +149,30 @@ def cleanup_workspace():
     os.makedirs(WORK_DIR, exist_ok=True)
 
 def reset_session():
-    """重置所有狀態，回到步驟 1"""
+    """徹底重置所有狀態"""
+    # 1. 清理實體檔案
     cleanup_workspace()
+    
+    # 2. 清除歷史紀錄 (避免斷點續傳救回資料)
+    if st.session_state.current_file_name and os.path.exists(HISTORY_FILE):
+        try:
+            with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if st.session_state.current_file_name in data:
+                del data[st.session_state.current_file_name]
+                with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+        except:
+            pass
+
+    # 3. 重置 Session State
     st.session_state.split_jobs = []
     st.session_state.current_file_name = None
     st.session_state.ppt_meta = {"total_slides": 0, "preview_data": []}
-    # [關鍵修正] 更新 uploader_key，這會強制重繪 file_uploader，清除已選檔案
-    st.session_state.uploader_key += 1
+    
+    # 4. [關鍵] 更新 reset_key，這會強制所有綁定此 key 的 input 元件重繪
+    st.session_state.reset_key += 1
+    
     st.rerun()
 
 def load_history(filename):
@@ -243,7 +254,6 @@ def download_file_from_url(url, dest_path):
     except Exception as e:
         return False, str(e)
 
-# [新增] 自動滾動 JS
 def auto_scroll():
     components.html(
         """
@@ -255,7 +265,6 @@ def auto_scroll():
         width=0,
     )
 
-# [新增] 複製按鈕 HTML
 def copy_button_html(text):
     return f"""
     <html>
@@ -299,9 +308,7 @@ def copy_button_html(text):
 #              Core Logic Function
 # ==========================================
 def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
-    # [UI修正] 自動滾動
     auto_scroll()
-    
     main_progress = st.progress(0, text="準備開始...")
     status_area = st.empty()
     detail_bar_placeholder = st.empty()
@@ -332,7 +339,6 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
         print(f"[Log] {msg}")
 
     try:
-        # [UI修正] 使用 st.info(icon="⏳") 統一藍色風格
         status_area.info("執行中：Step 1/5 - 提取影片並上傳雲端...", icon="⏳")
         main_progress.progress(5, text="Step 1: 影片雲端化")
         auto_scroll()
@@ -410,15 +416,12 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
         bot.log_to_sheets(final_results, log_callback=general_log)
 
         main_progress.progress(100, text="任務完成")
-        
-        # [UI修正] 成功訊息改為藍色背景 + 粗體文字，無 Emoji
         status_area.info("**成功：** 所有自動化流程執行完畢。", icon=None)
         
         if auto_clean:
             cleanup_workspace()
             
-        # [UI修正] 結果清單緊湊化
-        st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True) # 增加一點間距
+        st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
         
         with st.container(border=True):
             st.subheader("產出結果清單")
@@ -445,7 +448,6 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
                 st.warning("沒有產生任何結果，請檢查是否有任務被跳過。")
 
         st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
-        # [UI修正] 紅色重置按鈕
         if st.button("清除任務，上傳新簡報", type="secondary", use_container_width=True):
             reset_session()
         
@@ -462,9 +464,9 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
 
 os.makedirs(WORK_DIR, exist_ok=True)
 
-# [Key管理] 初始化 uploader_key 用於重置 (必須在 file_uploader 之前)
-if 'uploader_key' not in st.session_state:
-    st.session_state.uploader_key = 0
+# [Key管理] 初始化 reset_key 用於強制重置所有輸入元件
+if 'reset_key' not in st.session_state:
+    st.session_state.reset_key = 0
 
 # 1) Header
 st.markdown(
@@ -525,7 +527,6 @@ if 'ppt_meta' not in st.session_state:
 
 # 4. 檔案來源選擇區塊
 with st.container(border=True):
-    # [UI修正] 去除 emoji，統一標題風格
     st.subheader("步驟一：選擇檔案來源")
 
     input_method = st.radio("上傳方式", ["本地檔案", "線上檔案"], horizontal=True)
@@ -534,13 +535,15 @@ with st.container(border=True):
     source_path = os.path.join(WORK_DIR, "source.pptx")
     file_name_for_logic = None
 
-    # --- 本地檔案上傳 ---
+    # [關鍵修正] 使用 dynamic key 來綁定 reset_key，確保重置時清空
+    current_key = f"uploader_{st.session_state.reset_key}"
+
     if input_method == "本地檔案":
         uploaded_file = st.file_uploader(
             "請選擇 PPTX 檔案", 
             type=['pptx'], 
             label_visibility="collapsed",
-            key=f"uploader_{st.session_state.uploader_key}" # 動態 Key
+            key=current_key
         )
         if uploaded_file:
             file_name_for_logic = uploaded_file.name
@@ -553,12 +556,11 @@ with st.container(border=True):
                  with open(source_path, "wb") as f:
                     f.write(uploaded_file.getbuffer())
 
-    # --- 線上檔案下載 ---
     else:
         url_input = st.text_input(
             "請輸入 PPTX 檔案的直接下載網址 (Direct URL)", 
             placeholder="https://example.com/file.pptx",
-            key=f"url_input_{st.session_state.uploader_key}"
+            key=f"url_input_{st.session_state.reset_key}"
         )
         if url_input:
             if not url_input.lower().endswith(".pptx"):
@@ -625,13 +627,12 @@ if st.session_state.current_file_name:
     # --- 拆分任務區塊 ---
     with st.container(border=True):
         c_head1, c_head2 = st.columns([3, 1])
-        st.subheader("步驟二：設定拆分任務") # 去除 Emoji
-        with c_head2:
-            if st.button("➕ 新增任務", type="primary", use_container_width=True):
-                add_split_job(total_slides)
+        c_head1.subheader("步驟二：設定拆分任務")
+        if c_head2.button("➕ 新增任務", type="primary", use_container_width=True):
+            add_split_job(total_slides)
 
         if not st.session_state.split_jobs:
-            st.info("尚未建立任務，請點擊右上方按鈕新增。")
+            st.info("尚未建立任務，請點擊上方按鈕新增。")
 
         total_jobs_count = len(st.session_state.split_jobs)
 
@@ -639,7 +640,7 @@ if st.session_state.current_file_name:
             display_number = total_jobs_count - i
             
             with st.container(border=True):
-                # [UI修正] 標題與垃圾桶按鈕在同一行
+                # 標題與垃圾桶在同一行
                 c_title, c_del = st.columns([0.95, 0.05])
                 c_title.markdown(f"**任務 {display_number}**")
                 if c_del.button("🗑️", key=f"del_{job['id']}"):
@@ -647,24 +648,26 @@ if st.session_state.current_file_name:
                     st.rerun()
 
                 c1, c2, c3 = st.columns([3, 1.5, 1.5])
-                job["filename"] = c1.text_input("檔名", value=job["filename"], key=f"f_{job['id']}", placeholder="例如: 清潔案例A")
-                job["start"] = c2.number_input("起始頁", 1, total_slides, job["start"], key=f"s_{job['id']}")
-                job["end"] = c3.number_input("結束頁", 1, total_slides, job["end"], key=f"e_{job['id']}")
+                
+                # [關鍵修正] 所有 input 也綁定 reset_key，確保重置時清空
+                current_reset_key = str(st.session_state.reset_key)
+                
+                job["filename"] = c1.text_input("檔名", value=job["filename"], key=f"f_{job['id']}_{current_reset_key}", placeholder="例如: 清潔案例A")
+                job["start"] = c2.number_input("起始頁", 1, total_slides, job["start"], key=f"s_{job['id']}_{current_reset_key}")
+                job["end"] = c3.number_input("結束頁", 1, total_slides, job["end"], key=f"e_{job['id']}_{current_reset_key}")
 
                 m1, m2, m3, m4 = st.columns(4)
-                job["category"] = m1.selectbox("類型", ["清潔", "配送", "購物", "AURO"], key=f"cat_{job['id']}")
-                job["subcategory"] = m2.text_input("子分類", value=job["subcategory"], key=f"sub_{job['id']}")
-                job["client"] = m3.text_input("客戶", value=job["client"], key=f"cli_{job['id']}")
-                job["keywords"] = m4.text_input("關鍵字", value=job["keywords"], key=f"key_{job['id']}")
+                job["category"] = m1.selectbox("類型", ["清潔", "配送", "購物", "AURO"], key=f"cat_{job['id']}_{current_reset_key}")
+                job["subcategory"] = m2.text_input("子分類", value=job["subcategory"], key=f"sub_{job['id']}_{current_reset_key}")
+                job["client"] = m3.text_input("客戶", value=job["client"], key=f"cli_{job['id']}_{current_reset_key}")
+                job["keywords"] = m4.text_input("關鍵字", value=job["keywords"], key=f"key_{job['id']}_{current_reset_key}")
 
         if st.session_state.current_file_name:
             save_history(st.session_state.current_file_name, st.session_state.split_jobs)
 
     # --- 執行區塊 ---
     with st.container(border=True):
-        st.subheader("步驟三：執行任務") # [UI修正] 統一標題風格
-        
-        # [UI修正] 隱藏了 checkbox，直接在 logic 中預設執行
+        st.subheader("步驟三：執行任務")
         
         if st.button("執行雲端化任務", type="primary", use_container_width=True):
             if not st.session_state.split_jobs:
@@ -685,5 +688,5 @@ if st.session_state.current_file_name:
                         os.path.join(WORK_DIR, "source.pptx"),
                         os.path.splitext(st.session_state.current_file_name)[0],
                         st.session_state.split_jobs,
-                        auto_clean=True # [邏輯修正] 強制啟用
+                        auto_clean=True
                     )
