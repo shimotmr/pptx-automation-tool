@@ -1,9 +1,9 @@
-# Version: v0.97
+# Version: v0.98
 # Update Log:
-# 1. CRITICAL FIXED: Resolved NameError 'copy_script' is not defined.
-# 2. FIXED: Auto-scroll now triggers correctly after the result table is rendered.
-# 3. UI: Trash button now includes text "🗑️ 刪除" and aligns better.
-# 4. UI: Strengthened CSS to prevent double "Browse Files" buttons.
+# 1. FIXED: "Double Button" issue solved by using 'visibility: hidden' on the button
+#    content but keeping 'visibility: visible' on the pseudo-element.
+# 2. FIXED: Auto-scroll now targets 'window.parent' to scroll the main page, not the iframe.
+# 3. UI: Refined Dropzone styling to match previous successful versions.
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -44,10 +44,12 @@ header[data-testid="stHeader"] { display: none; }
     padding-bottom: 5rem !important;
 }
 
-/* 3. [精確修復] 上傳元件樣式 */
+/* 3. [終極修復] 上傳按鈕樣式 */
+/* 隱藏預設提示文字 */
 [data-testid="stFileUploaderDropzoneInstructions"] > div:first-child { display: none !important; }
 [data-testid="stFileUploaderDropzoneInstructions"] > div:nth-child(2) { display: none !important; }
 
+/* 自定義提示文字 */
 [data-testid="stFileUploaderDropzoneInstructions"]::before {
     content: "請將檔案拖放至此";
     display: block;
@@ -66,48 +68,54 @@ header[data-testid="stHeader"] { display: none; }
     line-height: 1.2;
 }
 
-/* 強制重置按鈕樣式，避免雙重顯示 */
+/* 按鈕樣式邏輯：隱藏本體內容，顯示偽元素 */
 [data-testid="stFileUploader"] button { 
-    font-size: 0 !important; /* 隱藏原文字 */
-    line-height: 0 !important;
-    color: transparent !important;
-    
-    position: relative;
+    visibility: hidden; /* 隱藏原本的 'Browse files' */
     width: auto !important;
-    min-width: 120px !important; 
+    min-width: 100px !important;
     height: 38px !important;
-    padding: 0 15px !important;
-    
-    border: 1px solid #d0d7de !important;
-    background-color: #ffffff !important;
-    border-radius: 4px;
-    margin-top: 10px;
+    position: relative; /* 讓偽元素可以定位 */
 }
 
-/* 偽元素顯示中文 */
+/* 用偽元素重建按鈕外觀與文字 */
 [data-testid="stFileUploader"] button::after {
     content: "瀏覽檔案";
-    position: absolute;
-    top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
+    visibility: visible; /* 強制顯示 */
     
-    font-size: 0.9rem !important;
-    line-height: 1.5 !important;
-    color: #31333F !important;
+    /* 定位與尺寸 */
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    
+    /* 外觀樣式 */
+    background-color: #ffffff;
+    border: 1px solid #d0d7de;
+    border-radius: 4px;
+    color: #31333F;
+    font-size: 0.9rem;
     font-weight: 500;
-    display: block;
-    white-space: nowrap;
     cursor: pointer;
 }
 
-/* 懸停效果 */
-[data-testid="stFileUploader"] button:hover {
-    border-color: #004280 !important;
-    background-color: #f0f7ff !important;
-}
+/* 懸停效果 (藍色) */
 [data-testid="stFileUploader"] button:hover::after {
-    color: #004280 !important;
+    border-color: #004280;
+    background-color: #f0f7ff;
+    color: #004280;
 }
+
+/* 確保刪除按鈕(X)不受影響 (它通常是小按鈕) */
+[data-testid="stFileUploaderDeleteBtn"] {
+    visibility: visible !important;
+    width: auto !important;
+    min-width: auto !important;
+}
+[data-testid="stFileUploaderDeleteBtn"]::after {
+    content: none !important;
+}
+
 
 /* 4. 統一字體與標題樣式 */
 h3 { font-size: 1.2rem !important; font-weight: 700 !important; color: #31333F; margin-bottom: 0.5rem;}
@@ -174,10 +182,8 @@ def reset_callback():
     [重置邏輯]
     這是 on_click 回調函數，會在重新加載前執行。
     """
-    # 1. 清理實體檔案
     cleanup_workspace()
     
-    # 2. 清除歷史紀錄
     if st.session_state.get('current_file_name') and os.path.exists(HISTORY_FILE):
         try:
             with open(HISTORY_FILE, "r", encoding="utf-8") as f:
@@ -189,12 +195,9 @@ def reset_callback():
         except:
             pass
 
-    # 3. 清空 Session State
     st.session_state.split_jobs = []
     st.session_state.current_file_name = None
     st.session_state.ppt_meta = {"total_slides": 0, "preview_data": []}
-    
-    # 4. 更新 reset_key，強制 Input 元件重繪
     st.session_state.reset_key += 1
 
 def load_history(filename):
@@ -276,18 +279,26 @@ def download_file_from_url(url, dest_path):
     except Exception as e:
         return False, str(e)
 
+# [修復] 自動滾動 - 使用 window.parent
 def auto_scroll():
     components.html(
         """
         <script>
-            window.scrollTo({top: document.body.scrollHeight, behavior: 'smooth'});
+            // 嘗試捲動 iframe 的父視窗 (即 Streamlit 主頁面)
+            try {
+                window.parent.scrollTo({
+                    top: window.parent.document.body.scrollHeight,
+                    behavior: 'smooth'
+                });
+            } catch (e) {
+                console.log("Auto-scroll failed: " + e);
+            }
         </script>
         """,
         height=0,
         width=0,
     )
 
-# [修正] 函數名稱統一為 copy_btn_html
 def copy_btn_html(text):
     return f"""
     <html>
@@ -331,9 +342,7 @@ def copy_btn_html(text):
 #              Core Logic Function
 # ==========================================
 def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
-    # 自動滾動開始
     auto_scroll()
-    
     main_progress = st.progress(0, text="準備開始...")
     status_area = st.empty()
     detail_bar_placeholder = st.empty()
@@ -468,7 +477,6 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
                     display_name = f"[{file_prefix}]_{res['filename']}"
                     link = res['final_link']
                     
-                    # [修正] 呼叫正確的函數名稱 copy_btn_html
                     table_html += f"""
                     <tr style="border-bottom: 1px solid #eee;">
                         <td style="padding: 8px; color: #333;">{display_name}</td>
@@ -498,7 +506,7 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
         st.button("清除任務，上傳新簡報", type="secondary", on_click=reset_callback)
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # [修正] 最後再次觸發滾動，確保能看到結果清單
+        # [關鍵] 最後再次觸發滾動，確保能看到結果清單
         auto_scroll()
 
     except Exception as e:
@@ -688,11 +696,9 @@ if st.session_state.current_file_name:
             display_number = total_jobs_count - i
             
             with st.container(border=True):
-                # [UI修正] 調整欄位比例 [6, 1] 確保對齊
-                c_title, c_del = st.columns([6, 1])
+                c_title, c_del = st.columns([0.95, 0.05])
                 c_title.markdown(f"**任務 {display_number}**")
                 
-                # 垃圾桶按鈕 (帶文字)
                 if c_del.button("🗑️ 刪除", key=f"del_{job['id']}"):
                     remove_split_job(i)
                     st.rerun()
