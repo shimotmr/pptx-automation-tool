@@ -1,10 +1,10 @@
-# Version: v0.95
+# Version: v0.96
 # Update Log:
-# 1. FIXED: "Browse Files" button now uses 'color: transparent' technique. 
-#    - Result: No double text, border is visible, hover is blue (not red).
-# 2. FIXED: Reset logic now uses on_click callback for guaranteed clearing.
-# 3. UI: Result list rendered via HTML table for compact layout.
-# 4. UI: "Start New Project" button wrapped in custom class for precise red styling.
+# 1. FIXED: Scoped "Browse Files" button CSS to Dropzone only.
+#    - Prevents styling the "X" (delete) button as a second browse button.
+#    - Removes red hover color, uses standard Blue.
+# 2. FIXED: Auto-scroll now triggers AFTER result list generation.
+# 3. UI: Preserved "Start New Project" functionality (Reset).
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -45,10 +45,12 @@ header[data-testid="stHeader"] { display: none; }
     padding-bottom: 5rem !important;
 }
 
-/* 3. [完美修復] 上傳按鈕樣式 */
+/* 3. [精確修復] 上傳元件樣式 */
+/* 隱藏預設提示文字 */
 [data-testid="stFileUploaderDropzoneInstructions"] > div:first-child { display: none !important; }
 [data-testid="stFileUploaderDropzoneInstructions"] > div:nth-child(2) { display: none !important; }
 
+/* 自定義提示文字 */
 [data-testid="stFileUploaderDropzoneInstructions"]::before {
     content: "請將檔案拖放至此";
     display: block;
@@ -67,28 +69,22 @@ header[data-testid="stHeader"] { display: none; }
     line-height: 1.2;
 }
 
-/* 按鈕本體：保留邊框，隱藏文字 */
-[data-testid="stFileUploader"] button { 
-    color: transparent !important; /* 隱藏英文 */
+/* [關鍵] 只針對 Dropzone 內的按鈕進行樣式重置，不影響 "X" 按鈕 */
+section[data-testid="stFileUploaderDropzone"] button { 
+    color: transparent !important; /* 隱藏英文 Browse files */
     position: relative;
     width: auto !important;
     min-width: 100px !important; 
     height: 38px !important;
     padding: 0 15px !important;
-    border: 1px solid #d0d7de !important; /* 強制邊框 */
+    border: 1px solid #d0d7de !important;
     background-color: #ffffff !important;
     border-radius: 4px;
-    transition: all 0.2s;
+    margin-top: 10px; /* 增加一點與文字的距離 */
 }
 
-/* 懸停效果 (改為藍色系，不要紅色) */
-[data-testid="stFileUploader"] button:hover {
-    border-color: #004280 !important;
-    background-color: #f0f7ff !important;
-}
-
-/* 偽元素顯示中文 - 覆蓋在透明文字上 */
-[data-testid="stFileUploader"] button::after {
+/* 偽元素顯示中文 - 覆蓋在按鈕上 */
+section[data-testid="stFileUploaderDropzone"] button::after {
     content: "瀏覽檔案";
     position: absolute;
     top: 0; left: 0; right: 0; bottom: 0;
@@ -96,11 +92,17 @@ header[data-testid="stHeader"] { display: none; }
     align-items: center;
     justify-content: center;
     font-size: 0.9rem !important;
-    color: #31333F !important; /* 文字顏色 */
+    color: #31333F !important;
     font-weight: 500;
     cursor: pointer;
 }
-[data-testid="stFileUploader"] button:hover::after {
+
+/* 懸停效果 - 藍色系 */
+section[data-testid="stFileUploaderDropzone"] button:hover {
+    border-color: #004280 !important;
+    background-color: #f0f7ff !important;
+}
+section[data-testid="stFileUploaderDropzone"] button:hover::after {
     color: #004280 !important;
 }
 
@@ -109,7 +111,7 @@ h3 { font-size: 1.2rem !important; font-weight: 700 !important; color: #31333F; 
 h4 { font-size: 1.1rem !important; font-weight: 600 !important; color: #555; }
 .stProgress > div > div > div > div { color: white; font-weight: 500; }
 
-/* 5. 統一提示詞顏色 (強制藍色風格) */
+/* 5. 統一提示詞顏色 (藍色風格) */
 div[data-testid="stAlert"][data-style="success"],
 div[data-testid="stAlert"][data-style="info"] {
     background-color: #F0F2F6 !important;
@@ -124,7 +126,7 @@ div[data-testid="stAlert"] svg {
     line-height: 1.4 !important;
 }
 
-/* 6. 紅色重置按鈕 (透過特定 Class 鎖定) */
+/* 6. 紅色重置按鈕樣式 */
 .reset-container button {
     border-color: #ffcccc !important;
     color: #cc0000 !important;
@@ -187,7 +189,7 @@ def reset_callback():
     st.session_state.current_file_name = None
     st.session_state.ppt_meta = {"total_slides": 0, "preview_data": []}
     
-    # 4. [關鍵] 更新 reset_key，強制 Input 元件重繪
+    # 4. 更新 reset_key，強制 Input 元件重繪
     st.session_state.reset_key += 1
 
 def load_history(filename):
@@ -280,24 +282,43 @@ def auto_scroll():
         width=0,
     )
 
-# 複製按鈕 JS (無介面，只有功能)
-def copy_script(text):
+def copy_button_html(text):
     return f"""
+    <html>
+    <head>
+    <style>
+    .copy-btn {{
+        background-color: #ffffff;
+        border: 1px solid #e0e0e0;
+        border-radius: 4px;
+        cursor: pointer;
+        padding: 4px 8px;
+        font-size: 13px;
+        display: flex;
+        align-items: center;
+        color: #555;
+        font-family: sans-serif;
+    }}
+    .copy-btn:hover {{ background-color: #f0f2f6; color: #31333F; }}
+    </style>
     <script>
-    function copyToClipboard() {{
-        const el = document.createElement('textarea');
-        el.value = '{text}';
-        document.body.appendChild(el);
-        el.select();
-        document.execCommand('copy');
-        document.body.removeChild(el);
-        alert('已複製連結');
+    function copyText() {{
+        const textArea = document.createElement("textarea");
+        textArea.value = "{text}";
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textArea);
+        const btn = document.getElementById("btn");
+        btn.innerHTML = "✅ 已複製";
+        setTimeout(() => {{ btn.innerHTML = "📋 複製連結"; }}, 2000);
     }}
     </script>
-    <button onclick="copyToClipboard()" style="
-        border:1px solid #ddd; background:white; padding:4px 8px; border-radius:4px; cursor:pointer; color:#555;">
-        📋 複製
-    </button>
+    </head>
+    <body style="margin:0; padding:0; overflow:hidden;">
+        <button id="btn" class="copy-btn" onclick="copyText()">📋 複製連結</button>
+    </body>
+    </html>
     """
 
 # ==========================================
@@ -419,7 +440,7 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
             
         st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
         
-        # [UI修正] 結果清單改用 HTML Table 渲染，更緊湊
+        # 結果清單容器
         with st.container(border=True):
             st.subheader("產出結果清單")
             
@@ -462,12 +483,12 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
 
         st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
         
-        # [UI修正] 紅色重置按鈕 - 使用 reset-container 類別包裹
+        # [UI修正] 紅色重置按鈕
         st.markdown('<div class="reset-container">', unsafe_allow_html=True)
-        # on_click 回調確保在重跑前執行清理
         st.button("清除任務，上傳新簡報", type="secondary", on_click=reset_callback)
         st.markdown('</div>', unsafe_allow_html=True)
         
+        # [關鍵] 最後再次觸發滾動，確保能看到結果清單
         auto_scroll()
 
     except Exception as e:
@@ -481,7 +502,7 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
 
 os.makedirs(WORK_DIR, exist_ok=True)
 
-# [Key管理] 初始化 reset_key
+# 初始化 reset_key
 if 'reset_key' not in st.session_state:
     st.session_state.reset_key = 0
 
@@ -552,10 +573,9 @@ with st.container(border=True):
     source_path = os.path.join(WORK_DIR, "source.pptx")
     file_name_for_logic = None
 
-    # 動態 Key (綁定 Reset)
+    # 動態 Key
     current_key = f"uploader_{st.session_state.reset_key}"
 
-    # --- 本地檔案上傳 ---
     if input_method == "本地檔案":
         uploaded_file = st.file_uploader(
             "請選擇 PPTX 檔案", 
@@ -574,7 +594,6 @@ with st.container(border=True):
                  with open(source_path, "wb") as f:
                     f.write(uploaded_file.getbuffer())
 
-    # --- 線上檔案下載 ---
     else:
         url_input = st.text_input(
             "請輸入 PPTX 檔案的直接下載網址 (Direct URL)", 
@@ -662,14 +681,12 @@ if st.session_state.current_file_name:
                 c_title, c_del = st.columns([0.95, 0.05])
                 c_title.markdown(f"**任務 {display_number}**")
                 
-                # 垃圾桶
                 if c_del.button("🗑️", key=f"del_{job['id']}"):
                     remove_split_job(i)
                     st.rerun()
 
                 c1, c2, c3 = st.columns([3, 1.5, 1.5])
                 
-                # Input 綁定 Key
                 k_suffix = str(st.session_state.reset_key)
                 
                 job["filename"] = c1.text_input("檔名", value=job["filename"], key=f"f_{job['id']}_{k_suffix}", placeholder="例如: 清潔案例A")
