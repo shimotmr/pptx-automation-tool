@@ -1,9 +1,10 @@
-# Version: v1.0 (Stable Release)
+# Version: v1.1
 # Update Log:
-# 1. FIXED: Browse Button CSS uses :not() selector to avoid affecting the Delete button.
-# 2. ARCHITECTURE: Introduced "Step 4: Results" container for better flow control.
-# 3. FIXED: Auto-scroll now targets a specific HTML anchor ID (#step4) for precise movement.
-# 4. UI: Reduced whitespace between execution and results.
+# 1. ARCHITECTURE: Step 4 (Results) is now a completely standalone container, 
+#    no longer nested inside Step 3.
+# 2. UI: "Reset" and "External Link" buttons are moved to a dedicated footer area.
+# 3. FEATURE: Added "Go to Aurotek Digital Library" link button.
+# 4. STATE: Implemented persistent result state to handle UI re-renders correctly.
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -38,18 +39,16 @@ st.markdown("""
 header[data-testid="stHeader"] { display: none; }
 .stApp > header { display: none; }
 
-/* 2. 調整頂部間距 */
+/* 2. 調整頂部與底部間距 */
 .block-container {
     padding-top: 1rem !important;
-    padding-bottom: 5rem !important;
+    padding-bottom: 6rem !important;
 }
 
-/* 3. [v1.0 終極修復] 上傳按鈕樣式 */
-/* 隱藏預設拖放文字 */
+/* 3. 上傳按鈕樣式 (使用 :not 排除法) */
 [data-testid="stFileUploaderDropzoneInstructions"] > div:first-child { display: none !important; }
 [data-testid="stFileUploaderDropzoneInstructions"] > div:nth-child(2) { display: none !important; }
 
-/* 自定義提示文字 */
 [data-testid="stFileUploaderDropzoneInstructions"]::before {
     content: "請將檔案拖放至此";
     display: block;
@@ -68,27 +67,17 @@ header[data-testid="stHeader"] { display: none; }
     line-height: 1.2;
 }
 
-/* [關鍵CSS] 鎖定主要按鈕，排除右上角的刪除(X)按鈕 
-   刪除按鈕通常帶有 aria-label="Delete" 或特定 class，
-   這裡我們重新定義主按鈕樣式，確保覆蓋掉原本的。
-*/
+/* 鎖定主要按鈕 */
 section[data-testid="stFileUploaderDropzone"] button {
     border: 1px solid #d0d7de;
     background-color: #ffffff;
-    color: #31333F;
+    color: transparent !important; /* 隱藏英文 */
+    position: relative;
     padding: 0.25rem 0.75rem;
     border-radius: 4px;
-    font-size: 14px;
-    line-height: 1.5;
-    min-height: 38px; /* 固定高度 */
+    min-height: 38px;
     width: auto;
     margin-top: 10px;
-}
-
-/* 隱藏預設英文文字 */
-section[data-testid="stFileUploaderDropzone"] button {
-    color: transparent !important;
-    position: relative;
 }
 
 /* 疊加中文文字 */
@@ -96,25 +85,22 @@ section[data-testid="stFileUploaderDropzone"] button::after {
     content: "瀏覽檔案";
     position: absolute;
     color: #31333F;
-    left: 50%;
-    top: 50%;
+    left: 50%; top: 50%;
     transform: translate(-50%, -50%);
     white-space: nowrap;
     font-weight: 500;
     font-size: 14px;
 }
 
-/* 排除刪除按鈕 (X) - 讓它保持原狀 */
+/* 排除刪除按鈕 (X) */
 [data-testid="stFileUploaderDeleteBtn"] {
     border: none !important;
     background: transparent !important;
     margin-top: 0 !important;
     min-height: auto !important;
-    color: inherit !important; /* 讓它顯示原本的顏色 */
+    color: inherit !important;
 }
-[data-testid="stFileUploaderDeleteBtn"]::after {
-    content: none !important;
-}
+[data-testid="stFileUploaderDeleteBtn"]::after { content: none !important; }
 
 /* 4. 統一字體與標題樣式 */
 h3 { font-size: 1.2rem !important; font-weight: 700 !important; color: #31333F; margin-bottom: 0.5rem;}
@@ -128,25 +114,29 @@ div[data-testid="stAlert"][data-style="info"] {
     color: #31333F !important;
     border: 1px solid #d0d7de !important;
 }
-div[data-testid="stAlert"] svg {
-    color: #004280 !important; 
-}
-[data-testid="stAlert"] p {
-    font-size: 0.9rem !important;
-    line-height: 1.4 !important;
-}
+div[data-testid="stAlert"] svg { color: #004280 !important; }
+[data-testid="stAlert"] p { font-size: 0.9rem !important; line-height: 1.4 !important; }
 
-/* 6. 紅色重置按鈕樣式 */
-.reset-container button {
+/* 6. 底部按鈕區樣式 */
+/* 清除任務按鈕 (紅色警告風) */
+.reset-btn button {
     border-color: #ffcccc !important;
     color: #cc0000 !important;
     background-color: #fff5f5 !important;
     width: 100%;
 }
-.reset-container button:hover {
+.reset-btn button:hover {
     border-color: #cc0000 !important;
     background-color: #ffe6e6 !important;
     color: #cc0000 !important;
+}
+
+/* 外部連結按鈕 (標準次要按鈕，但加寬) */
+.link-btn a {
+    width: 100%;
+    text-align: center;
+    justify-content: center;
+    font-weight: 500;
 }
 
 /* 7. 垃圾桶按鈕微調 */
@@ -171,7 +161,6 @@ div[data-testid="column"] button:hover {
 #              Helper Functions
 # ==========================================
 def cleanup_workspace():
-    """清理工作目錄"""
     if os.path.exists(WORK_DIR):
         try:
             shutil.rmtree(WORK_DIR)
@@ -197,6 +186,7 @@ def reset_callback():
     st.session_state.split_jobs = []
     st.session_state.current_file_name = None
     st.session_state.ppt_meta = {"total_slides": 0, "preview_data": []}
+    st.session_state.execution_results = None # 清除結果狀態
     st.session_state.reset_key += 1
 
 def load_history(filename):
@@ -278,32 +268,22 @@ def download_file_from_url(url, dest_path):
     except Exception as e:
         return False, str(e)
 
-# [修正] 滾動到特定錨點 ID
+# 自動滾動 (針對 Step 4)
 def scroll_to_step4():
     components.html(
         """
         <script>
-            // 延遲執行，等待 DOM 渲染完畢
             setTimeout(function() {
                 try {
                     const step4 = window.parent.document.getElementById('step4-anchor');
                     if (step4) {
                         step4.scrollIntoView({behavior: 'smooth', block: 'start'});
-                    } else {
-                        // 備用方案：滑到底部
-                        window.parent.scrollTo({
-                            top: window.parent.document.body.scrollHeight,
-                            behavior: 'smooth'
-                        });
                     }
-                } catch (e) {
-                    console.log("Scroll failed: " + e);
-                }
+                } catch (e) { console.log(e); }
             }, 500); 
         </script>
         """,
-        height=0,
-        width=0,
+        height=0, width=0
     )
 
 def copy_btn_html(text):
@@ -455,71 +435,16 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
         if auto_clean:
             cleanup_workspace()
             
-        # [架構更新] 渲染步驟四
-        render_step4_results(final_results, file_prefix)
+        # 將結果存入 Session State，供外部渲染
+        st.session_state.execution_results = {
+            "results": final_results,
+            "prefix": file_prefix
+        }
 
     except Exception as e:
         st.error(f"執行過程中發生錯誤: {e}")
         with st.expander("查看詳細錯誤資訊"):
             st.code(traceback.format_exc())
-
-# [新增] 步驟四渲染函數 (獨立區塊)
-def render_step4_results(final_results, file_prefix):
-    st.markdown("<div style='margin-top: 30px;'></div>", unsafe_allow_html=True)
-    
-    # 插入隱藏的錨點 ID
-    st.markdown("<div id='step4-anchor'></div>", unsafe_allow_html=True)
-    
-    with st.container(border=True):
-        st.subheader("步驟四：產出結果")
-        
-        table_html = """
-        <table style="width:100%; border-collapse: collapse; font-size: 14px;">
-            <tr style="background-color: #f9f9f9; text-align: left; border-bottom: 1px solid #ddd;">
-                <th style="padding: 8px;">檔案名稱</th>
-                <th style="padding: 8px; width: 120px;">線上預覽</th>
-                <th style="padding: 8px; width: 100px;">操作</th>
-            </tr>
-        """
-        
-        has_result = False
-        for res in final_results:
-            if 'final_link' in res:
-                has_result = True
-                display_name = f"[{file_prefix}]_{res['filename']}"
-                link = res['final_link']
-                
-                table_html += f"""
-                <tr style="border-bottom: 1px solid #eee;">
-                    <td style="padding: 8px; color: #333;">{display_name}</td>
-                    <td style="padding: 8px;">
-                        <a href="{link}" target="_blank" style="
-                            text-decoration: none; color: #004280; font-weight: 500;
-                            border: 1px solid #004280; padding: 4px 8px; border-radius: 4px; display: inline-block;">
-                            開啟簡報
-                        </a>
-                    </td>
-                    <td style="padding: 8px;">
-                        {copy_btn_html(link)}
-                    </td>
-                </tr>
-                """
-        table_html += "</table>"
-        
-        if has_result:
-            components.html(table_html, height=max(100, len(final_results)*55 + 50), scrolling=True)
-        else:
-            st.warning("沒有產生任何結果，請檢查是否有任務被跳過。")
-
-    st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
-    
-    # 紅色重置按鈕
-    st.markdown('<div class="reset-container">', unsafe_allow_html=True)
-    st.button("清除任務，上傳新簡報", type="secondary", on_click=reset_callback)
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    # [關鍵] 觸發滾動到步驟四
-    scroll_to_step4()
 
 # ==========================================
 #              Main UI (Layout)
@@ -527,9 +452,11 @@ def render_step4_results(final_results, file_prefix):
 
 os.makedirs(WORK_DIR, exist_ok=True)
 
-# 初始化 reset_key
+# 初始化 reset_key 與 results
 if 'reset_key' not in st.session_state:
     st.session_state.reset_key = 0
+if 'execution_results' not in st.session_state:
+    st.session_state.execution_results = None
 
 # 1) Header
 st.markdown(
@@ -588,7 +515,7 @@ if 'current_file_name' not in st.session_state:
 if 'ppt_meta' not in st.session_state:
     st.session_state.ppt_meta = {"total_slides": 0, "preview_data": []}
 
-# 4. 檔案來源選擇區塊
+# 4. 檔案來源選擇區塊 (Container Step 1)
 with st.container(border=True):
     st.subheader("步驟一：選擇檔案來源")
 
@@ -598,7 +525,6 @@ with st.container(border=True):
     source_path = os.path.join(WORK_DIR, "source.pptx")
     file_name_for_logic = None
 
-    # 動態 Key
     current_key = f"uploader_{st.session_state.reset_key}"
 
     if input_method == "本地檔案":
@@ -610,14 +536,11 @@ with st.container(border=True):
         )
         if uploaded_file:
             file_name_for_logic = uploaded_file.name
-            
             if st.session_state.current_file_name != file_name_for_logic:
                 cleanup_workspace()
-                with open(source_path, "wb") as f:
-                    f.write(uploaded_file.getbuffer())
+                with open(source_path, "wb") as f: f.write(uploaded_file.getbuffer())
             elif not os.path.exists(source_path):
-                 with open(source_path, "wb") as f:
-                    f.write(uploaded_file.getbuffer())
+                 with open(source_path, "wb") as f: f.write(uploaded_file.getbuffer())
 
     else:
         url_input = st.text_input(
@@ -628,10 +551,8 @@ with st.container(border=True):
         if url_input:
             if not url_input.lower().endswith(".pptx"):
                 st.warning("⚠️ 網址結尾似乎不是 .pptx，請確認網址正確性。")
-
             fake_name = url_input.split("/")[-1].split("?")[0]
-            if not fake_name.lower().endswith(".pptx"):
-                fake_name += ".pptx"
+            if not fake_name.lower().endswith(".pptx"): fake_name += ".pptx"
 
             if st.button("下載並處理此網址"):
                 with st.spinner("正在從網址下載檔案..."):
@@ -643,21 +564,15 @@ with st.container(border=True):
                     else:
                         st.error(f"下載失敗: {error}")
 
-    # 5. 檔案處理邏輯
+    # 檔案處理邏輯
     if file_name_for_logic and os.path.exists(source_path):
         file_prefix = os.path.splitext(file_name_for_logic)[0]
-
         if st.session_state.current_file_name != file_name_for_logic:
             saved_jobs = load_history(file_name_for_logic)
             st.session_state.split_jobs = saved_jobs if saved_jobs else []
-
-            progress_placeholder = st.empty()
-            progress_placeholder.progress(0, text="解析檔案中...")
-
             try:
                 prs = Presentation(source_path)
                 total_slides = len(prs.slides)
-
                 preview_data = []
                 for i, slide in enumerate(prs.slides):
                     txt = slide.shapes.title.text if (slide.shapes.title and slide.shapes.title.text) else "無標題"
@@ -667,14 +582,12 @@ with st.container(border=True):
                                 txt = s.text.strip()[:20] + "..."
                                 break
                     preview_data.append({"頁碼": i+1, "內容摘要": txt})
-
                 st.session_state.ppt_meta["total_slides"] = total_slides
                 st.session_state.ppt_meta["preview_data"] = preview_data
                 st.session_state.current_file_name = file_name_for_logic
-
-                progress_placeholder.progress(100, text="完成！")
+                # 若檔案更換，清除上一次的結果
+                st.session_state.execution_results = None 
                 st.info(f"**成功：** 已讀取 {file_name_for_logic} (共 {total_slides} 頁)", icon=None)
-
             except Exception as e:
                 st.error(f"檔案處理失敗: {e}")
                 st.session_state.current_file_name = None
@@ -687,7 +600,7 @@ if st.session_state.current_file_name:
     with st.expander("點擊查看「頁碼與標題對照表」", expanded=False):
         st.dataframe(preview_data, use_container_width=True, height=250, hide_index=True)
 
-    # --- 拆分任務區塊 ---
+    # --- 拆分任務區塊 (Container Step 2) ---
     with st.container(border=True):
         c_head1, c_head2 = st.columns([3, 1])
         c_head1.subheader("步驟二：設定拆分任務")
@@ -698,22 +611,18 @@ if st.session_state.current_file_name:
             st.info("尚未建立任務，請點擊上方按鈕新增。")
 
         total_jobs_count = len(st.session_state.split_jobs)
+        k_suffix = str(st.session_state.reset_key)
 
         for i, job in enumerate(st.session_state.split_jobs):
             display_number = total_jobs_count - i
-            
             with st.container(border=True):
                 c_title, c_del = st.columns([0.88, 0.12])
                 c_title.markdown(f"**任務 {display_number}**")
-                
                 if c_del.button("🗑️ 刪除", key=f"del_{job['id']}"):
                     remove_split_job(i)
                     st.rerun()
 
                 c1, c2, c3 = st.columns([3, 1.5, 1.5])
-                
-                k_suffix = str(st.session_state.reset_key)
-                
                 job["filename"] = c1.text_input("檔名", value=job["filename"], key=f"f_{job['id']}_{k_suffix}", placeholder="例如: 清潔案例A")
                 job["start"] = c2.number_input("起始頁", 1, total_slides, job["start"], key=f"s_{job['id']}_{k_suffix}")
                 job["end"] = c3.number_input("結束頁", 1, total_slides, job["end"], key=f"e_{job['id']}_{k_suffix}")
@@ -727,7 +636,7 @@ if st.session_state.current_file_name:
         if st.session_state.current_file_name:
             save_history(st.session_state.current_file_name, st.session_state.split_jobs)
 
-    # --- 執行區塊 ---
+    # --- 執行區塊 (Container Step 3) ---
     with st.container(border=True):
         st.subheader("步驟三：執行任務")
         
@@ -752,3 +661,77 @@ if st.session_state.current_file_name:
                         st.session_state.split_jobs,
                         auto_clean=True
                     )
+                    # 執行完畢後，強制刷新以渲染下方的 Step 4
+                    st.rerun()
+
+# --- 步驟四：獨立渲染區塊 (Container Step 4) ---
+if st.session_state.execution_results:
+    st.markdown("<div style='margin-top: 30px;'></div>", unsafe_allow_html=True)
+    # 錨點 ID
+    st.markdown("<div id='step4-anchor'></div>", unsafe_allow_html=True)
+    
+    with st.container(border=True):
+        st.subheader("步驟四：產出結果")
+        
+        results = st.session_state.execution_results["results"]
+        f_prefix = st.session_state.execution_results["prefix"]
+        
+        table_html = """
+        <table style="width:100%; border-collapse: collapse; font-size: 14px;">
+            <tr style="background-color: #f9f9f9; text-align: left; border-bottom: 1px solid #ddd;">
+                <th style="padding: 8px;">檔案名稱</th>
+                <th style="padding: 8px; width: 120px;">線上預覽</th>
+                <th style="padding: 8px; width: 100px;">操作</th>
+            </tr>
+        """
+        
+        has_result = False
+        for res in results:
+            if 'final_link' in res:
+                has_result = True
+                display_name = f"[{f_prefix}]_{res['filename']}"
+                link = res['final_link']
+                
+                table_html += f"""
+                <tr style="border-bottom: 1px solid #eee;">
+                    <td style="padding: 8px; color: #333;">{display_name}</td>
+                    <td style="padding: 8px;">
+                        <a href="{link}" target="_blank" style="
+                            text-decoration: none; color: #004280; font-weight: 500;
+                            border: 1px solid #004280; padding: 4px 8px; border-radius: 4px; display: inline-block;">
+                            開啟簡報
+                        </a>
+                    </td>
+                    <td style="padding: 8px;">
+                        {copy_btn_html(link)}
+                    </td>
+                </tr>
+                """
+        table_html += "</table>"
+        
+        if has_result:
+            components.html(table_html, height=max(100, len(results)*55 + 50), scrolling=True)
+        else:
+            st.warning("沒有產生任何結果，請檢查是否有任務被跳過。")
+    
+    # 觸發滾動
+    scroll_to_step4()
+
+# --- 底部按鈕區 (獨立於所有步驟) ---
+if st.session_state.current_file_name:
+    st.markdown("<div style='margin-top: 40px;'></div>", unsafe_allow_html=True)
+    
+    # 兩顆按鈕並排
+    b_col1, b_col2 = st.columns(2)
+    
+    # 左邊：清除任務 (紅色)
+    with b_col1:
+        st.markdown('<div class="reset-btn">', unsafe_allow_html=True)
+        st.button("清除任務，上傳新簡報", type="secondary", on_click=reset_callback, use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+    # 右邊：前往數位資源庫 (標準 Secondary，樣式與左邊一致)
+    with b_col2:
+        st.markdown('<div class="link-btn">', unsafe_allow_html=True)
+        st.link_button("前往「和椿數位資源庫」", "https://aurotek.pse.is/puducases", type="secondary", use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
