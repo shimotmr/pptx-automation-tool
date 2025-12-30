@@ -1,10 +1,9 @@
-# Version: v0.96
+# Version: v0.97
 # Update Log:
-# 1. FIXED: Scoped "Browse Files" button CSS to Dropzone only.
-#    - Prevents styling the "X" (delete) button as a second browse button.
-#    - Removes red hover color, uses standard Blue.
-# 2. FIXED: Auto-scroll now triggers AFTER result list generation.
-# 3. UI: Preserved "Start New Project" functionality (Reset).
+# 1. CRITICAL FIXED: Resolved NameError 'copy_script' is not defined.
+# 2. FIXED: Auto-scroll now triggers correctly after the result table is rendered.
+# 3. UI: Trash button now includes text "🗑️ 刪除" and aligns better.
+# 4. UI: Strengthened CSS to prevent double "Browse Files" buttons.
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -46,11 +45,9 @@ header[data-testid="stHeader"] { display: none; }
 }
 
 /* 3. [精確修復] 上傳元件樣式 */
-/* 隱藏預設提示文字 */
 [data-testid="stFileUploaderDropzoneInstructions"] > div:first-child { display: none !important; }
 [data-testid="stFileUploaderDropzoneInstructions"] > div:nth-child(2) { display: none !important; }
 
-/* 自定義提示文字 */
 [data-testid="stFileUploaderDropzoneInstructions"]::before {
     content: "請將檔案拖放至此";
     display: block;
@@ -69,40 +66,46 @@ header[data-testid="stHeader"] { display: none; }
     line-height: 1.2;
 }
 
-/* [關鍵] 只針對 Dropzone 內的按鈕進行樣式重置，不影響 "X" 按鈕 */
-section[data-testid="stFileUploaderDropzone"] button { 
-    color: transparent !important; /* 隱藏英文 Browse files */
+/* 強制重置按鈕樣式，避免雙重顯示 */
+[data-testid="stFileUploader"] button { 
+    font-size: 0 !important; /* 隱藏原文字 */
+    line-height: 0 !important;
+    color: transparent !important;
+    
     position: relative;
     width: auto !important;
-    min-width: 100px !important; 
+    min-width: 120px !important; 
     height: 38px !important;
     padding: 0 15px !important;
+    
     border: 1px solid #d0d7de !important;
     background-color: #ffffff !important;
     border-radius: 4px;
-    margin-top: 10px; /* 增加一點與文字的距離 */
+    margin-top: 10px;
 }
 
-/* 偽元素顯示中文 - 覆蓋在按鈕上 */
-section[data-testid="stFileUploaderDropzone"] button::after {
+/* 偽元素顯示中文 */
+[data-testid="stFileUploader"] button::after {
     content: "瀏覽檔案";
     position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    
     font-size: 0.9rem !important;
+    line-height: 1.5 !important;
     color: #31333F !important;
     font-weight: 500;
+    display: block;
+    white-space: nowrap;
     cursor: pointer;
 }
 
-/* 懸停效果 - 藍色系 */
-section[data-testid="stFileUploaderDropzone"] button:hover {
+/* 懸停效果 */
+[data-testid="stFileUploader"] button:hover {
     border-color: #004280 !important;
     background-color: #f0f7ff !important;
 }
-section[data-testid="stFileUploaderDropzone"] button:hover::after {
+[data-testid="stFileUploader"] button:hover::after {
     color: #004280 !important;
 }
 
@@ -141,13 +144,15 @@ div[data-testid="stAlert"] svg {
 
 /* 7. 垃圾桶按鈕微調 */
 div[data-testid="column"] button {
-   border: none !important;
-   background: transparent !important;
-   padding: 0 !important;
+   border: 1px solid #eee !important;
+   background: white !important;
+   color: #555 !important;
+   font-size: 0.8rem !important;
 }
 div[data-testid="column"] button:hover {
    color: #cc0000 !important;
-   background: transparent !important;
+   border-color: #cc0000 !important;
+   background: #fff5f5 !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -282,7 +287,8 @@ def auto_scroll():
         width=0,
     )
 
-def copy_button_html(text):
+# [修正] 函數名稱統一為 copy_btn_html
+def copy_btn_html(text):
     return f"""
     <html>
     <head>
@@ -325,7 +331,9 @@ def copy_button_html(text):
 #              Core Logic Function
 # ==========================================
 def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
+    # 自動滾動開始
     auto_scroll()
+    
     main_progress = st.progress(0, text="準備開始...")
     status_area = st.empty()
     detail_bar_placeholder = st.empty()
@@ -449,7 +457,7 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
                 <tr style="background-color: #f9f9f9; text-align: left; border-bottom: 1px solid #ddd;">
                     <th style="padding: 8px;">檔案名稱</th>
                     <th style="padding: 8px; width: 120px;">線上預覽</th>
-                    <th style="padding: 8px; width: 80px;">複製</th>
+                    <th style="padding: 8px; width: 100px;">操作</th>
                 </tr>
             """
             
@@ -459,36 +467,38 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
                     has_result = True
                     display_name = f"[{file_prefix}]_{res['filename']}"
                     link = res['final_link']
+                    
+                    # [修正] 呼叫正確的函數名稱 copy_btn_html
                     table_html += f"""
                     <tr style="border-bottom: 1px solid #eee;">
                         <td style="padding: 8px; color: #333;">{display_name}</td>
                         <td style="padding: 8px;">
                             <a href="{link}" target="_blank" style="
                                 text-decoration: none; color: #004280; font-weight: 500;
-                                border: 1px solid #004280; padding: 3px 8px; border-radius: 4px; display: inline-block;">
+                                border: 1px solid #004280; padding: 4px 8px; border-radius: 4px; display: inline-block;">
                                 開啟簡報
                             </a>
                         </td>
                         <td style="padding: 8px;">
-                            {copy_script(link)}
+                            {copy_btn_html(link)}
                         </td>
                     </tr>
                     """
             table_html += "</table>"
             
             if has_result:
-                components.html(table_html, height=max(100, len(final_results)*50 + 50), scrolling=True)
+                components.html(table_html, height=max(100, len(final_results)*55 + 50), scrolling=True)
             else:
                 st.warning("沒有產生任何結果，請檢查是否有任務被跳過。")
 
         st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
         
-        # [UI修正] 紅色重置按鈕
+        # 紅色重置按鈕
         st.markdown('<div class="reset-container">', unsafe_allow_html=True)
         st.button("清除任務，上傳新簡報", type="secondary", on_click=reset_callback)
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # [關鍵] 最後再次觸發滾動，確保能看到結果清單
+        # [修正] 最後再次觸發滾動，確保能看到結果清單
         auto_scroll()
 
     except Exception as e:
@@ -678,10 +688,12 @@ if st.session_state.current_file_name:
             display_number = total_jobs_count - i
             
             with st.container(border=True):
-                c_title, c_del = st.columns([0.95, 0.05])
+                # [UI修正] 調整欄位比例 [6, 1] 確保對齊
+                c_title, c_del = st.columns([6, 1])
                 c_title.markdown(f"**任務 {display_number}**")
                 
-                if c_del.button("🗑️", key=f"del_{job['id']}"):
+                # 垃圾桶按鈕 (帶文字)
+                if c_del.button("🗑️ 刪除", key=f"del_{job['id']}"):
                     remove_split_job(i)
                     st.rerun()
 
