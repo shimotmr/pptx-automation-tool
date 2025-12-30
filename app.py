@@ -1,9 +1,8 @@
-# Version: v0.98
+# Version: v0.99
 # Update Log:
-# 1. FIXED: "Double Button" issue solved by using 'visibility: hidden' on the button
-#    content but keeping 'visibility: visible' on the pseudo-element.
-# 2. FIXED: Auto-scroll now targets 'window.parent' to scroll the main page, not the iframe.
-# 3. UI: Refined Dropzone styling to match previous successful versions.
+# 1. FIXED: Trash button layout (Widened column & CSS nowrap) to prevent text wrapping.
+# 2. FIXED: Auto-scroll now uses a JS timeout (300ms) to ensure DOM is fully rendered before scrolling.
+# 3. UI: Removed manual spacers to reduce whitespace between Success message and Result list.
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -44,12 +43,10 @@ header[data-testid="stHeader"] { display: none; }
     padding-bottom: 5rem !important;
 }
 
-/* 3. [終極修復] 上傳按鈕樣式 */
-/* 隱藏預設提示文字 */
+/* 3. 上傳元件樣式 */
 [data-testid="stFileUploaderDropzoneInstructions"] > div:first-child { display: none !important; }
 [data-testid="stFileUploaderDropzoneInstructions"] > div:nth-child(2) { display: none !important; }
 
-/* 自定義提示文字 */
 [data-testid="stFileUploaderDropzoneInstructions"]::before {
     content: "請將檔案拖放至此";
     display: block;
@@ -68,61 +65,48 @@ header[data-testid="stHeader"] { display: none; }
     line-height: 1.2;
 }
 
-/* 按鈕樣式邏輯：隱藏本體內容，顯示偽元素 */
+/* 按鈕樣式重置 */
 [data-testid="stFileUploader"] button { 
-    visibility: hidden; /* 隱藏原本的 'Browse files' */
+    visibility: hidden; /* 隱藏原始按鈕內容 */
+    position: relative;
     width: auto !important;
-    min-width: 100px !important;
+    min-width: 100px !important; 
     height: 38px !important;
-    position: relative; /* 讓偽元素可以定位 */
+    padding: 0 !important;
+    border: 1px solid #d0d7de !important;
+    background-color: #ffffff !important;
+    border-radius: 4px;
 }
 
-/* 用偽元素重建按鈕外觀與文字 */
+/* 偽元素顯示中文 */
 [data-testid="stFileUploader"] button::after {
     content: "瀏覽檔案";
-    visibility: visible; /* 強制顯示 */
-    
-    /* 定位與尺寸 */
+    visibility: visible;
     position: absolute;
     top: 0; left: 0; right: 0; bottom: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    
-    /* 外觀樣式 */
-    background-color: #ffffff;
-    border: 1px solid #d0d7de;
-    border-radius: 4px;
-    color: #31333F;
-    font-size: 0.9rem;
+    font-size: 0.9rem !important;
+    color: #31333F !important;
     font-weight: 500;
     cursor: pointer;
 }
 
-/* 懸停效果 (藍色) */
+/* 懸停效果 */
+[data-testid="stFileUploader"] button:hover {
+    border-color: #004280 !important;
+}
 [data-testid="stFileUploader"] button:hover::after {
-    border-color: #004280;
-    background-color: #f0f7ff;
-    color: #004280;
+    color: #004280 !important;
 }
-
-/* 確保刪除按鈕(X)不受影響 (它通常是小按鈕) */
-[data-testid="stFileUploaderDeleteBtn"] {
-    visibility: visible !important;
-    width: auto !important;
-    min-width: auto !important;
-}
-[data-testid="stFileUploaderDeleteBtn"]::after {
-    content: none !important;
-}
-
 
 /* 4. 統一字體與標題樣式 */
 h3 { font-size: 1.2rem !important; font-weight: 700 !important; color: #31333F; margin-bottom: 0.5rem;}
 h4 { font-size: 1.1rem !important; font-weight: 600 !important; color: #555; }
 .stProgress > div > div > div > div { color: white; font-weight: 500; }
 
-/* 5. 統一提示詞顏色 (藍色風格) */
+/* 5. 統一提示詞顏色 */
 div[data-testid="stAlert"][data-style="success"],
 div[data-testid="stAlert"][data-style="info"] {
     background-color: #F0F2F6 !important;
@@ -150,12 +134,15 @@ div[data-testid="stAlert"] svg {
     color: #cc0000 !important;
 }
 
-/* 7. 垃圾桶按鈕微調 */
+/* 7. [UI修正] 垃圾桶按鈕 - 強制不換行與寬度適應 */
 div[data-testid="column"] button {
    border: 1px solid #eee !important;
    background: white !important;
    color: #555 !important;
-   font-size: 0.8rem !important;
+   font-size: 0.85rem !important;
+   white-space: nowrap !important; /* 禁止文字換行 */
+   min-width: 80px !important;     /* 給予最小寬度 */
+   padding: 4px 8px !important;
 }
 div[data-testid="column"] button:hover {
    color: #cc0000 !important;
@@ -178,10 +165,7 @@ def cleanup_workspace():
     os.makedirs(WORK_DIR, exist_ok=True)
 
 def reset_callback():
-    """
-    [重置邏輯]
-    這是 on_click 回調函數，會在重新加載前執行。
-    """
+    """重置邏輯 (on_click)"""
     cleanup_workspace()
     
     if st.session_state.get('current_file_name') and os.path.exists(HISTORY_FILE):
@@ -279,20 +263,21 @@ def download_file_from_url(url, dest_path):
     except Exception as e:
         return False, str(e)
 
-# [修復] 自動滾動 - 使用 window.parent
+# [修正] 自動滾動 - 加入延遲以確保頁面渲染完成
 def auto_scroll():
     components.html(
         """
         <script>
-            // 嘗試捲動 iframe 的父視窗 (即 Streamlit 主頁面)
-            try {
-                window.parent.scrollTo({
-                    top: window.parent.document.body.scrollHeight,
-                    behavior: 'smooth'
-                });
-            } catch (e) {
-                console.log("Auto-scroll failed: " + e);
-            }
+            setTimeout(function() {
+                try {
+                    window.parent.scrollTo({
+                        top: window.parent.document.body.scrollHeight,
+                        behavior: 'smooth'
+                    });
+                } catch (e) {
+                    console.log("Auto-scroll failed: " + e);
+                }
+            }, 300); // 延遲 300ms 確保 DOM 更新
         </script>
         """,
         height=0,
@@ -455,9 +440,8 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
         if auto_clean:
             cleanup_workspace()
             
-        st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
+        # [UI修正] 移除空白間隔，直接接結果清單
         
-        # 結果清單容器
         with st.container(border=True):
             st.subheader("產出結果清單")
             
@@ -696,7 +680,8 @@ if st.session_state.current_file_name:
             display_number = total_jobs_count - i
             
             with st.container(border=True):
-                c_title, c_del = st.columns([0.95, 0.05])
+                # [UI修正] 調整欄位比例 [0.88, 0.12] 寬度，確保按鈕有足夠空間
+                c_title, c_del = st.columns([0.88, 0.12])
                 c_title.markdown(f"**任務 {display_number}**")
                 
                 if c_del.button("🗑️ 刪除", key=f"del_{job['id']}"):
