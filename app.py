@@ -1,9 +1,9 @@
-# Version: v1.2
+# Version: v1.1.1
 # Update Log:
-# 1. UI: Removed extra whitespace between Step 3 and Step 4 to ensure consistent spacing.
-# 2. UI: Footer buttons ("Reset" and "Digital Library") now use type="primary" (Blue) 
-#    to match the "Execute" button style.
-# 3. CSS: Removed custom red styling for the reset button.
+# 1. ROLLEDBACK: Reverted core logic and CSS to v1.1 (Stable).
+# 2. FIXED: Removed manual whitespace before Step 4 to match Step 2-3 spacing.
+# 3. FIXED: Footer buttons are now "Primary" (Blue) to match the Execute button.
+# 4. REMOVED: Deleted custom CSS for red buttons to ensure consistency.
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -44,7 +44,7 @@ header[data-testid="stHeader"] { display: none; }
     padding-bottom: 6rem !important;
 }
 
-/* 3. 上傳按鈕樣式 (使用 :not 排除法) */
+/* 3. 上傳按鈕樣式 (使用 v1.1 的穩定寫法) */
 [data-testid="stFileUploaderDropzoneInstructions"] > div:first-child { display: none !important; }
 [data-testid="stFileUploaderDropzoneInstructions"] > div:nth-child(2) { display: none !important; }
 
@@ -66,7 +66,7 @@ header[data-testid="stHeader"] { display: none; }
     line-height: 1.2;
 }
 
-/* 鎖定主要按鈕 */
+/* 鎖定 Dropzone 內的主要按鈕 (避免雙重按鈕問題) */
 section[data-testid="stFileUploaderDropzone"] button {
     border: 1px solid #d0d7de;
     background-color: #ffffff;
@@ -116,8 +116,8 @@ div[data-testid="stAlert"][data-style="info"] {
 div[data-testid="stAlert"] svg { color: #004280 !important; }
 [data-testid="stAlert"] p { font-size: 0.9rem !important; line-height: 1.4 !important; }
 
-/* 6. 底部按鈕區樣式 (改為標準樣式，移除紅色強制設定) */
-/* 這裡只保留連結按鈕的置中設定，清除按鈕將直接使用 Primary 風格 */
+/* 6. 底部按鈕區樣式 */
+/* 這裡只保留連結按鈕的寬度設定，顏色改由 Python 的 type="primary" 控制 */
 .link-btn a {
     width: 100%;
     text-align: center;
@@ -642,7 +642,6 @@ if st.session_state.current_file_name:
 
 # --- 步驟四：獨立渲染區塊 ---
 if st.session_state.execution_results:
-    # [修正] 移除人工 margin
     # 錨點 ID
     st.markdown("<div id='step4-anchor'></div>", unsafe_allow_html=True)
     
@@ -693,17 +692,17 @@ if st.session_state.execution_results:
     # 觸發滾動
     scroll_to_step4()
 
-# --- 底部按鈕區 ---
+# --- 底部按鈕區 (獨立於所有步驟) ---
 if st.session_state.current_file_name:
     st.markdown("<div style='margin-top: 40px;'></div>", unsafe_allow_html=True)
     
     b_col1, b_col2 = st.columns(2)
     
-    # 左邊：清除任務 (藍色 Primary 風格)
+    # 左邊：清除任務 (Primary 藍色)
     with b_col1:
         st.button("清除任務，上傳新簡報", type="primary", on_click=reset_callback, use_container_width=True)
         
-    # 右邊：前往數位資源庫 (藍色 Primary 風格)
+    # 右邊：前往數位資源庫 (Primary 藍色)
     with b_col2:
         st.markdown('<div class="link-btn">', unsafe_allow_html=True)
         st.link_button("前往「和椿數位資源庫」", "https://aurotek.pse.is/puducases", type="primary", use_container_width=True)
