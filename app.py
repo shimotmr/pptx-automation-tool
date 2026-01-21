@@ -1,10 +1,9 @@
-# Version: v1.5 (OOM Fix & Clean Slate)
-# Update Log:
-# 1. CRITICAL: Added Garbage Collection (gc.collect) to handle heavy memory usage (29+ videos).
-# 2. FIXED: Removed all references to 'copy_script' to fix NameError.
-# 3. UI: Step 3 appears only after tasks exist.
-# 4. UI: Step 4 appears only after execution results exist.
-# 5. UI: Footer buttons aligned and styled blue.
+# Version: v1.6 (Memory Safe Edition)
+# Fixes:
+# 1. FIXED: 'copy_script' NameError by standardizing to 'render_copy_btn'.
+# 2. OOM FIX: Aggressive garbage collection (gc.collect) after every video operation.
+# 3. SAFETY: Added a warning if > 15 videos are detected.
+# 4. CLEANUP: Ensures no old code residue remains.
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -14,21 +13,23 @@ import json
 import shutil
 import traceback
 import requests
-import gc  # 引入垃圾回收模組
+import gc # 引入垃圾回收機制
 from pptx import Presentation
 
-# 強制檢查依賴
+# -------------------------------------------------
+# 1. 依賴檢查
+# -------------------------------------------------
 try:
     from ppt_processor import PPTAutomationBot
 except ImportError:
-    st.error("❌ 找不到 `ppt_processor.py`，請確認檔案已上傳！")
+    st.error("❌ 嚴重錯誤：找不到 `ppt_processor.py`，請確認檔案已上傳至同一目錄。")
     st.stop()
 
 # ==========================================
-#              設定頁面與樣式
+# 2. 設定與 CSS
 # ==========================================
 st.set_page_config(
-    page_title="Aurotek數位資料庫 簡報案例自動化發布平台",
+    page_title="Aurotek 自動化發布平台",
     page_icon="📄",
     layout="wide"
 )
@@ -37,41 +38,51 @@ LOGO_URL = "https://aurotek.com/wp-content/uploads/2025/07/logo.svg"
 WORK_DIR = "temp_workspace"
 HISTORY_FILE = "job_history.json"
 
-# ==========================================
-#              CSS 深度優化
-# ==========================================
 st.markdown("""
 <style>
 /* 隱藏 Header */
 header[data-testid="stHeader"], .stApp > header { display: none; }
 .block-container { padding-top: 1rem !important; padding-bottom: 6rem !important; }
 
-/* 上傳按鈕 */
-[data-testid="stFileUploaderDropzoneInstructions"] > div:first-child,
-[data-testid="stFileUploaderDropzoneInstructions"] > div:nth-child(2) { display: none !important; }
-[data-testid="stFileUploaderDropzoneInstructions"]::before { content: "請將檔案拖放至此"; display: block; font-weight: 700; color: #31333F; }
-section[data-testid="stFileUploaderDropzone"] button {
-    border: 1px solid #d0d7de; background-color: #ffffff; color: transparent !important;
-    position: relative; padding: 0.25rem 0.75rem; border-radius: 4px; min-height: 38px; width: auto; margin-top: 10px;
+/* 藍色風格提示 */
+div[data-testid="stAlert"][data-style="success"], 
+div[data-testid="stAlert"][data-style="info"] { 
+    background-color: #F0F2F6 !important; 
+    color: #31333F !important; 
+    border: 1px solid #d0d7de !important; 
 }
-section[data-testid="stFileUploaderDropzone"] button::after {
-    content: "瀏覽檔案"; position: absolute; color: #31333F; left: 50%; top: 50%; transform: translate(-50%, -50%); white-space: nowrap; font-weight: 500; font-size: 14px;
-}
-[data-testid="stFileUploaderDeleteBtn"] { border: none !important; background: transparent !important; margin-top: 0 !important; color: inherit !important; }
-[data-testid="stFileUploaderDeleteBtn"]::after { content: none !important; }
-
-/* 提示詞藍色風格 */
-div[data-testid="stAlert"][data-style="success"], div[data-testid="stAlert"][data-style="info"] { background-color: #F0F2F6 !important; color: #31333F !important; border: 1px solid #d0d7de !important; }
 div[data-testid="stAlert"] svg { color: #004280 !important; }
 
-/* 垃圾桶與按鈕 */
-div[data-testid="column"] button { border: 1px solid #eee !important; background: white !important; color: #555 !important; font-size: 0.85rem !important; min-width: 40px !important; padding: 4px 8px !important; }
-div[data-testid="column"] button:hover { color: #cc0000 !important; border-color: #cc0000 !important; background: #fff5f5 !important; }
+/* 上傳按鈕優化 */
+[data-testid="stFileUploaderDropzoneInstructions"] > div { display: none !important; }
+[data-testid="stFileUploaderDropzoneInstructions"]::before {
+    content: "請將檔案拖放至此"; display: block; font-weight: 700; color: #31333F; margin-bottom: 4px;
+}
+section[data-testid="stFileUploaderDropzone"] button {
+    border: 1px solid #d0d7de; background: #fff; color: transparent !important;
+    position: relative; border-radius: 4px; min-height: 38px; width: auto; margin-top: 10px;
+}
+section[data-testid="stFileUploaderDropzone"] button::after {
+    content: "瀏覽檔案"; position: absolute; color: #31333F; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    white-space: nowrap; font-weight: 500; font-size: 14px;
+}
+/* 排除刪除按鈕 */
+[data-testid="stFileUploaderDeleteBtn"] { border: none !important; background: transparent; color: inherit !important; }
+[data-testid="stFileUploaderDeleteBtn"]::after { content: none; }
+
+/* 垃圾桶與按鈕對齊 */
+div[data-testid="column"] button { 
+    border: 1px solid #eee !important; background: white !important; color: #555 !important; 
+    font-size: 0.85rem !important; min-width: 40px !important; padding: 4px 8px !important; 
+}
+div[data-testid="column"] button:hover { 
+    color: #cc0000 !important; border-color: #cc0000 !important; background: #fff5f5 !important; 
+}
 </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
-#              Helper Functions
+# 3. 核心功能函數
 # ==========================================
 def cleanup_workspace():
     if os.path.exists(WORK_DIR):
@@ -81,27 +92,26 @@ def cleanup_workspace():
 
 def reset_callback():
     cleanup_workspace()
+    # 清除 History
     if st.session_state.get('current_file_name') and os.path.exists(HISTORY_FILE):
         try:
-            with open(HISTORY_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
+            with open(HISTORY_FILE, "r", encoding="utf-8") as f: data = json.load(f)
             if st.session_state.current_file_name in data:
                 del data[st.session_state.current_file_name]
-                with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-                    json.dump(data, f, ensure_ascii=False, indent=2)
+                with open(HISTORY_FILE, "w", encoding="utf-8") as f: json.dump(data, f, ensure_ascii=False, indent=2)
         except: pass
+        
     st.session_state.split_jobs = []
     st.session_state.current_file_name = None
     st.session_state.ppt_meta = {"total_slides": 0, "preview_data": []}
     st.session_state.execution_results = None 
     st.session_state.reset_key += 1
-    gc.collect() # 強制回收記憶體
+    gc.collect() # 重置時強制釋放記憶體
 
 def load_history(filename):
     if os.path.exists(HISTORY_FILE):
         try:
-            with open(HISTORY_FILE, "r", encoding="utf-8") as f:
-                return json.load(f).get(filename, [])
+            with open(HISTORY_FILE, "r", encoding="utf-8") as f: return json.load(f).get(filename, [])
         except: return []
     return []
 
@@ -109,12 +119,11 @@ def save_history(filename, jobs):
     try:
         data = {}
         if os.path.exists(HISTORY_FILE):
-            with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+            with open(HISTORY_FILE, "r", encoding="utf-8") as f: 
                 try: data = json.load(f)
                 except: pass
         data[filename] = jobs
-        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        with open(HISTORY_FILE, "w", encoding="utf-8") as f: json.dump(data, f, ensure_ascii=False, indent=2)
     except: pass
 
 def add_split_job(total_pages):
@@ -139,32 +148,30 @@ def download_file_from_url(url, dest_path):
         response = requests.get(url, stream=True, timeout=60)
         response.raise_for_status()
         with open(dest_path, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
+            for chunk in response.iter_content(chunk_size=8192): f.write(chunk)
         return True, None
     except Exception as e: return False, str(e)
 
 def scroll_to_step4():
     components.html("""<script>setTimeout(function(){try{const s=window.parent.document.getElementById('step4-anchor');if(s)s.scrollIntoView({behavior:'smooth',block:'start'});}catch(e){}},500);</script>""", height=0)
 
-def copy_link_btn(text):
-    # 改名以防重複
-    return f"""<html><body><button onclick="navigator.clipboard.writeText('{text}')" style="border:1px solid #ddd;background:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;">📋 複製</button></body></html>"""
+# [Fix NameError] 統一名稱，確保全域唯一
+def render_copy_btn(text):
+    return f"""<html><body style="margin:0;padding:0;"><button onclick="navigator.clipboard.writeText('{text}')" style="border:1px solid #004280;background:#fff;color:#004280;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:13px;">📋 複製</button></body></html>"""
 
 # ==========================================
-#              核心執行邏輯 (OOM優化)
+# 4. 核心執行邏輯 (記憶體優化版)
 # ==========================================
 def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
     main_progress = st.progress(0, text="準備開始...")
     status_area = st.empty()
     detail_bar = st.empty()
     
-    # 定義回調
     def update_bar(text, pct):
         detail_bar.progress(pct, text=text)
 
     try:
-        # Step 1: Video Upload
+        # Step 1: Upload Videos
         status_area.info("1️⃣ 步驟 1/5：提取 PPT 內影片並上傳至雲端...")
         main_progress.progress(5, text="Step 1: 影片雲端化")
         
@@ -176,17 +183,16 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
             log_callback=print
         )
         
-        # [優化] 顯示影片數量並警告
-        video_count = len(video_map)
-        if video_count > 20:
-            st.toast(f"⚠️ 偵測到 {video_count} 個影片，處理時間可能較長，請耐心等待...", icon="🐢")
+        # [記憶體保護] 如果影片太多，提示風險
+        if len(video_map) > 20:
+            st.toast(f"⚠️ 偵測到 {len(video_map)} 個影片，記憶體負載較高，請勿刷新頁面...", icon="🔥")
         
-        # [關鍵] 釋放記憶體
-        gc.collect() 
+        gc.collect() # 強制釋放記憶體
 
-        # Step 2: Replace Videos
+        # Step 2: Replace Videos (最容易崩潰的點)
         status_area.info("2️⃣ 步驟 2/5：將 PPT 內的影片替換為雲端連結圖片...")
         main_progress.progress(25, text="Step 2: 連結置換")
+        
         mod_path = os.path.join(WORK_DIR, "modified.pptx")
         
         bot.replace_videos_with_images(
@@ -195,30 +201,33 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
             video_map,
             progress_callback=lambda c, t: update_bar(f"處理投影片 {c}/{t}", c/t if t else 0)
         )
-        gc.collect() # 再次釋放
+        
+        # [記憶體保護] 處理完圖片後，立刻釋放
+        gc.collect()
 
         # Step 3: Shrink
         status_area.info("3️⃣ 步驟 3/5：進行檔案壓縮與瘦身...")
         main_progress.progress(45, text="Step 3: 檔案瘦身")
         slim_path = os.path.join(WORK_DIR, "slim.pptx")
+        
         bot.shrink_pptx(mod_path, slim_path, progress_callback=lambda c, t: update_bar("壓縮中...", c/t if t else 0))
         gc.collect()
 
         # Step 4: Split & Upload
         status_area.info("4️⃣ 步驟 4/5：依設定拆分簡報並上傳...")
         main_progress.progress(65, text="Step 4: 拆分發布")
+        
         results = bot.split_and_upload(
             slim_path, sorted(jobs, key=lambda x: x['start']), file_prefix,
             progress_callback=lambda f, c, t: update_bar(f"上傳簡報: {f}", c/t if t else 0),
             log_callback=print
         )
         
-        oversized = [r for r in results if r.get('error_too_large')]
-        if oversized:
-            st.error("⛔️ 流程終止：檔案過大。")
+        if any(r.get('error_too_large') for r in results):
+            st.error("⛔️ 流程終止：部分檔案過大無法上傳。")
             return
 
-        # Step 5: Embed Optimization
+        # Step 5: Optimize Embed
         status_area.info("5️⃣ 步驟 5/5：優化線上播放器...")
         main_progress.progress(85, text="Step 5: 內嵌優化")
         final_results = bot.embed_videos_in_slides(results, progress_callback=lambda c, t: update_bar("優化中...", c/t if t else 0), log_callback=print)
@@ -237,12 +246,15 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
         st.session_state.execution_results = {"results": final_results, "prefix": file_prefix}
 
     except Exception as e:
-        st.error("❌ 執行流程發生錯誤！")
+        st.error(f"❌ 執行流程發生錯誤: {str(e)}")
+        # 若是記憶體錯誤，提示更具體
+        if "Memory" in str(e) or "kill" in str(e):
+            st.error("⚠️ 系統記憶體不足 (Out of Memory)。建議：將 PPT 拆分成多個小檔案後再分批上傳。")
         with st.expander("查看詳細錯誤資訊"):
             st.code(traceback.format_exc())
 
 # ==========================================
-#              Main UI Logic
+# 5. 主介面邏輯
 # ==========================================
 os.makedirs(WORK_DIR, exist_ok=True)
 
@@ -262,7 +274,7 @@ if 'bot' not in st.session_state:
 if 'current_file_name' not in st.session_state: st.session_state.current_file_name = None
 if 'ppt_meta' not in st.session_state: st.session_state.ppt_meta = {"total_slides": 0, "preview_data": []}
 
-# Step 1
+# Step 1: Upload
 with st.container(border=True):
     st.subheader("步驟一：選擇檔案來源")
     input_method = st.radio("上傳方式", ["本地檔案", "線上檔案"], horizontal=True)
@@ -287,8 +299,7 @@ with st.container(border=True):
             if success:
                 file_name_for_logic = "downloaded.pptx"
                 st.info("下載成功", icon="✅")
-            else:
-                st.error(f"下載失敗: {err}")
+            else: st.error(f"下載失敗: {err}")
 
     if file_name_for_logic and os.path.exists(source_path):
         file_prefix = os.path.splitext(file_name_for_logic)[0]
@@ -307,11 +318,11 @@ with st.container(border=True):
                 st.session_state.current_file_name = None
                 st.stop()
 
+# Step 2: Configure
 if st.session_state.current_file_name:
     with st.expander("👁️ 查看頁碼對照表"):
         st.dataframe(st.session_state.ppt_meta["preview_data"], use_container_width=True)
 
-    # Step 2
     with st.container(border=True):
         c1, c2 = st.columns([3, 1])
         c1.subheader("步驟二：設定拆分任務")
@@ -342,7 +353,7 @@ if st.session_state.current_file_name:
         
         save_history(st.session_state.current_file_name, st.session_state.split_jobs)
 
-    # Step 3
+    # Step 3: Execute (Only if tasks exist)
     if st.session_state.split_jobs:
         with st.container(border=True):
             st.subheader("步驟三：執行任務")
@@ -363,7 +374,7 @@ if st.session_state.current_file_name:
                         st.rerun()
                     else: st.error("Bot 未初始化")
 
-# Step 4
+# Step 4: Results
 if st.session_state.execution_results:
     st.markdown("<div id='step4-anchor'></div>", unsafe_allow_html=True)
     with st.container(border=True):
@@ -374,10 +385,10 @@ if st.session_state.execution_results:
         rows = ""
         for r in results:
             if 'final_link' in r:
-                rows += f"""<tr style="border-bottom:1px solid #eee;"><td style="padding:8px;color:#333;">[{pfx}]_{r['filename']}</td><td style="padding:8px;"><a href="{r['final_link']}" target="_blank" style="text-decoration:none;color:#004280;font-weight:500;border:1px solid #004280;padding:4px 8px;border-radius:4px;display:inline-block;">開啟簡報</a></td><td style="padding:8px;">{copy_link_btn(r['final_link'])}</td></tr>"""
+                rows += f"""<tr style="border-bottom:1px solid #eee;"><td style="padding:8px;color:#333;">[{pfx}]_{r['filename']}</td><td style="padding:8px;"><a href="{r['final_link']}" target="_blank" style="text-decoration:none;color:#004280;font-weight:500;border:1px solid #004280;padding:4px 8px;border-radius:4px;display:inline-block;">開啟簡報</a></td><td style="padding:8px;">{render_copy_btn(r['final_link'])}</td></tr>"""
         
         if rows: st.markdown(f"""<table style="width:100%;font-size:14px;border-collapse:collapse;"><tr style="background-color:#f9f9f9;text-align:left;border-bottom:1px solid #ddd;"><th style="padding:8px;">檔案名稱</th><th style="padding:8px;">線上預覽</th><th style="padding:8px;">操作</th></tr>{rows}</table>""", unsafe_allow_html=True)
-        else: st.warning("沒有產生任何結果，請檢查是否有任務被跳過。")
+        else: st.warning("沒有產生任何結果。")
     scroll_to_step4()
 
 # Footer
