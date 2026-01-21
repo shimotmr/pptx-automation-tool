@@ -1,9 +1,8 @@
-# Version: v1.6 (Memory Safe Edition)
-# Fixes:
-# 1. FIXED: 'copy_script' NameError by standardizing to 'render_copy_btn'.
-# 2. OOM FIX: Aggressive garbage collection (gc.collect) after every video operation.
-# 3. SAFETY: Added a warning if > 15 videos are detected.
-# 4. CLEANUP: Ensures no old code residue remains.
+# Version: v1.7 (Title Preview Fixed)
+# Update Log:
+# 1. FIXED: Restored logic to extract Slide Titles/Content for the preview table.
+# 2. CORE: Kept v1.6.1 Batch Processing & GC to prevent OOM with 29+ videos.
+# 3. UI: Maintained Blue styling, alignment, and clean headers.
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -13,7 +12,8 @@ import json
 import shutil
 import traceback
 import requests
-import gc # 引入垃圾回收機制
+import gc
+import math
 from pptx import Presentation
 
 # -------------------------------------------------
@@ -92,7 +92,6 @@ def cleanup_workspace():
 
 def reset_callback():
     cleanup_workspace()
-    # 清除 History
     if st.session_state.get('current_file_name') and os.path.exists(HISTORY_FILE):
         try:
             with open(HISTORY_FILE, "r", encoding="utf-8") as f: data = json.load(f)
@@ -106,7 +105,7 @@ def reset_callback():
     st.session_state.ppt_meta = {"total_slides": 0, "preview_data": []}
     st.session_state.execution_results = None 
     st.session_state.reset_key += 1
-    gc.collect() # 重置時強制釋放記憶體
+    gc.collect()
 
 def load_history(filename):
     if os.path.exists(HISTORY_FILE):
@@ -155,12 +154,11 @@ def download_file_from_url(url, dest_path):
 def scroll_to_step4():
     components.html("""<script>setTimeout(function(){try{const s=window.parent.document.getElementById('step4-anchor');if(s)s.scrollIntoView({behavior:'smooth',block:'start'});}catch(e){}},500);</script>""", height=0)
 
-# [Fix NameError] 統一名稱，確保全域唯一
 def render_copy_btn(text):
     return f"""<html><body style="margin:0;padding:0;"><button onclick="navigator.clipboard.writeText('{text}')" style="border:1px solid #004280;background:#fff;color:#004280;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:13px;">📋 複製</button></body></html>"""
 
 # ==========================================
-# 4. 核心執行邏輯 (記憶體優化版)
+# 4. 核心執行邏輯 (分批處理 + 記憶體優化)
 # ==========================================
 def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
     main_progress = st.progress(0, text="準備開始...")
@@ -171,7 +169,7 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
         detail_bar.progress(pct, text=text)
 
     try:
-        # Step 1: Upload Videos
+        # Step 1
         status_area.info("1️⃣ 步驟 1/5：提取 PPT 內影片並上傳至雲端...")
         main_progress.progress(5, text="Step 1: 影片雲端化")
         
@@ -182,41 +180,54 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
             progress_callback=lambda f, c, t: update_bar(f"上傳中: {f}", c/t if t else 0),
             log_callback=print
         )
-        
-        # [記憶體保護] 如果影片太多，提示風險
-        if len(video_map) > 20:
-            st.toast(f"⚠️ 偵測到 {len(video_map)} 個影片，記憶體負載較高，請勿刷新頁面...", icon="🔥")
-        
-        gc.collect() # 強制釋放記憶體
-
-        # Step 2: Replace Videos (最容易崩潰的點)
-        status_area.info("2️⃣ 步驟 2/5：將 PPT 內的影片替換為雲端連結圖片...")
-        main_progress.progress(25, text="Step 2: 連結置換")
-        
-        mod_path = os.path.join(WORK_DIR, "modified.pptx")
-        
-        bot.replace_videos_with_images(
-            source_path,
-            mod_path,
-            video_map,
-            progress_callback=lambda c, t: update_bar(f"處理投影片 {c}/{t}", c/t if t else 0)
-        )
-        
-        # [記憶體保護] 處理完圖片後，立刻釋放
         gc.collect()
 
-        # Step 3: Shrink
+        # Step 2: Batch Processing
+        status_area.info("2️⃣ 步驟 2/5：置換影片連結 (分批處理模式)...")
+        main_progress.progress(25, text="Step 2: 連結置換")
+        
+        final_mod_path = os.path.join(WORK_DIR, "modified.pptx")
+        temp_working_path = os.path.join(WORK_DIR, "temp_working.pptx")
+        shutil.copy(source_path, temp_working_path)
+        
+        video_items = list(video_map.items())
+        BATCH_SIZE = 5
+        total_batches = math.ceil(len(video_items) / BATCH_SIZE)
+        
+        for i in range(0, len(video_items), BATCH_SIZE):
+            batch_num = (i // BATCH_SIZE) + 1
+            batch_items = dict(video_items[i : i + BATCH_SIZE])
+            
+            current_pct = batch_num / total_batches
+            update_bar(f"批次處理 ({batch_num}/{total_batches}): 置換影片...", current_pct)
+            
+            temp_output = os.path.join(WORK_DIR, f"temp_batch_{batch_num}.pptx")
+            
+            bot.replace_videos_with_images(
+                temp_working_path,
+                temp_output,
+                batch_items,
+                progress_callback=None
+            )
+            
+            if os.path.exists(temp_working_path): os.remove(temp_working_path)
+            shutil.move(temp_output, temp_working_path)
+            gc.collect() # 關鍵釋放
+        
+        if os.path.exists(final_mod_path): os.remove(final_mod_path)
+        shutil.move(temp_working_path, final_mod_path)
+        detail_bar.empty()
+
+        # Step 3
         status_area.info("3️⃣ 步驟 3/5：進行檔案壓縮與瘦身...")
         main_progress.progress(45, text="Step 3: 檔案瘦身")
         slim_path = os.path.join(WORK_DIR, "slim.pptx")
-        
-        bot.shrink_pptx(mod_path, slim_path, progress_callback=lambda c, t: update_bar("壓縮中...", c/t if t else 0))
+        bot.shrink_pptx(final_mod_path, slim_path, progress_callback=lambda c, t: update_bar("壓縮中...", c/t if t else 0))
         gc.collect()
 
-        # Step 4: Split & Upload
+        # Step 4
         status_area.info("4️⃣ 步驟 4/5：依設定拆分簡報並上傳...")
         main_progress.progress(65, text="Step 4: 拆分發布")
-        
         results = bot.split_and_upload(
             slim_path, sorted(jobs, key=lambda x: x['start']), file_prefix,
             progress_callback=lambda f, c, t: update_bar(f"上傳簡報: {f}", c/t if t else 0),
@@ -227,7 +238,7 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
             st.error("⛔️ 流程終止：部分檔案過大無法上傳。")
             return
 
-        # Step 5: Optimize Embed
+        # Step 5
         status_area.info("5️⃣ 步驟 5/5：優化線上播放器...")
         main_progress.progress(85, text="Step 5: 內嵌優化")
         final_results = bot.embed_videos_in_slides(results, progress_callback=lambda c, t: update_bar("優化中...", c/t if t else 0), log_callback=print)
@@ -242,14 +253,10 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
         
         if auto_clean: cleanup_workspace()
         
-        # 儲存結果
         st.session_state.execution_results = {"results": final_results, "prefix": file_prefix}
 
     except Exception as e:
         st.error(f"❌ 執行流程發生錯誤: {str(e)}")
-        # 若是記憶體錯誤，提示更具體
-        if "Memory" in str(e) or "kill" in str(e):
-            st.error("⚠️ 系統記憶體不足 (Out of Memory)。建議：將 PPT 拆分成多個小檔案後再分批上傳。")
         with st.expander("查看詳細錯誤資訊"):
             st.code(traceback.format_exc())
 
@@ -274,7 +281,7 @@ if 'bot' not in st.session_state:
 if 'current_file_name' not in st.session_state: st.session_state.current_file_name = None
 if 'ppt_meta' not in st.session_state: st.session_state.ppt_meta = {"total_slides": 0, "preview_data": []}
 
-# Step 1: Upload
+# Step 1
 with st.container(border=True):
     st.subheader("步驟一：選擇檔案來源")
     input_method = st.radio("上傳方式", ["本地檔案", "線上檔案"], horizontal=True)
@@ -308,8 +315,21 @@ with st.container(border=True):
             st.session_state.split_jobs = saved_jobs if saved_jobs else []
             try:
                 prs = Presentation(source_path)
-                st.session_state.ppt_meta["total_slides"] = len(prs.slides)
-                st.session_state.ppt_meta["preview_data"] = [{"頁碼": i+1} for i in range(len(prs.slides))]
+                total_slides = len(prs.slides)
+                
+                # [FIXED] 恢復標題讀取功能
+                preview_data = []
+                for i, slide in enumerate(prs.slides):
+                    txt = slide.shapes.title.text if (slide.shapes.title and slide.shapes.title.text) else "無標題"
+                    if txt == "無標題":
+                        for s in slide.shapes:
+                            if hasattr(s, "text") and s.text.strip():
+                                txt = s.text.strip()[:20] + "..."
+                                break
+                    preview_data.append({"頁碼": i+1, "內容摘要": txt})
+                
+                st.session_state.ppt_meta["total_slides"] = total_slides
+                st.session_state.ppt_meta["preview_data"] = preview_data
                 st.session_state.current_file_name = file_name_for_logic
                 st.session_state.execution_results = None 
                 st.info(f"**已讀取：** {file_name_for_logic} (共 {len(prs.slides)} 頁)", icon=None)
@@ -318,7 +338,7 @@ with st.container(border=True):
                 st.session_state.current_file_name = None
                 st.stop()
 
-# Step 2: Configure
+# Step 2
 if st.session_state.current_file_name:
     with st.expander("👁️ 查看頁碼對照表"):
         st.dataframe(st.session_state.ppt_meta["preview_data"], use_container_width=True)
@@ -353,7 +373,7 @@ if st.session_state.current_file_name:
         
         save_history(st.session_state.current_file_name, st.session_state.split_jobs)
 
-    # Step 3: Execute (Only if tasks exist)
+    # Step 3
     if st.session_state.split_jobs:
         with st.container(border=True):
             st.subheader("步驟三：執行任務")
@@ -374,7 +394,7 @@ if st.session_state.current_file_name:
                         st.rerun()
                     else: st.error("Bot 未初始化")
 
-# Step 4: Results
+# Step 4
 if st.session_state.execution_results:
     st.markdown("<div id='step4-anchor'></div>", unsafe_allow_html=True)
     with st.container(border=True):
