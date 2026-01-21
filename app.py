@@ -1,8 +1,8 @@
-# Version: v1.7 (Title Preview Fixed)
+# Version: v1.8 (Ultra-Stable Single Processing)
 # Update Log:
-# 1. FIXED: Restored logic to extract Slide Titles/Content for the preview table.
-# 2. CORE: Kept v1.6.1 Batch Processing & GC to prevent OOM with 29+ videos.
-# 3. UI: Maintained Blue styling, alignment, and clean headers.
+# 1. CRITICAL: Changed Batch Size from 5 to 1. Processes videos one by one to survive low memory.
+# 2. OPTIMIZATION: Added explicit variable deletion (del) before Garbage Collection.
+# 3. UI: Preserved ALL v1.7 UI fixes (Blue style, No Emojis, Correct Title Preview).
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -158,7 +158,7 @@ def render_copy_btn(text):
     return f"""<html><body style="margin:0;padding:0;"><button onclick="navigator.clipboard.writeText('{text}')" style="border:1px solid #004280;background:#fff;color:#004280;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:13px;">📋 複製</button></body></html>"""
 
 # ==========================================
-# 4. 核心執行邏輯 (分批處理 + 記憶體優化)
+# 4. 核心執行邏輯 (極限單兵模式)
 # ==========================================
 def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
     main_progress = st.progress(0, text="準備開始...")
@@ -182,27 +182,31 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
         )
         gc.collect()
 
-        # Step 2: Batch Processing
-        status_area.info("2️⃣ 步驟 2/5：置換影片連結 (分批處理模式)...")
-        main_progress.progress(25, text="Step 2: 連結置換")
+        # Step 2: Single-Item Processing
+        status_area.info("2️⃣ 步驟 2/5：置換影片連結 (極限穩定模式)...")
+        main_progress.progress(25, text="Step 2: 連結置換 (逐一處理)")
         
         final_mod_path = os.path.join(WORK_DIR, "modified.pptx")
         temp_working_path = os.path.join(WORK_DIR, "temp_working.pptx")
         shutil.copy(source_path, temp_working_path)
         
         video_items = list(video_map.items())
-        BATCH_SIZE = 5
-        total_batches = math.ceil(len(video_items) / BATCH_SIZE)
+        total_items = len(video_items)
         
-        for i in range(0, len(video_items), BATCH_SIZE):
-            batch_num = (i // BATCH_SIZE) + 1
+        # [極限優化] 一次只處理 1 個影片
+        BATCH_SIZE = 1 
+        
+        for i in range(0, total_items, BATCH_SIZE):
+            current_item_num = i + 1
+            # 取出這 1 個影片
             batch_items = dict(video_items[i : i + BATCH_SIZE])
             
-            current_pct = batch_num / total_batches
-            update_bar(f"批次處理 ({batch_num}/{total_batches}): 置換影片...", current_pct)
+            current_pct = current_item_num / total_items
+            update_bar(f"正在置換第 {current_item_num}/{total_items} 個影片...", current_pct)
             
-            temp_output = os.path.join(WORK_DIR, f"temp_batch_{batch_num}.pptx")
+            temp_output = os.path.join(WORK_DIR, f"temp_step_{current_item_num}.pptx")
             
+            # 執行置換
             bot.replace_videos_with_images(
                 temp_working_path,
                 temp_output,
@@ -210,9 +214,14 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
                 progress_callback=None
             )
             
-            if os.path.exists(temp_working_path): os.remove(temp_working_path)
+            # 檔案輪替
+            if os.path.exists(temp_working_path):
+                os.remove(temp_working_path)
             shutil.move(temp_output, temp_working_path)
-            gc.collect() # 關鍵釋放
+            
+            # [關鍵] 強制清空所有變數與記憶體
+            batch_items = None
+            gc.collect()
         
         if os.path.exists(final_mod_path): os.remove(final_mod_path)
         shutil.move(temp_working_path, final_mod_path)
@@ -317,7 +326,7 @@ with st.container(border=True):
                 prs = Presentation(source_path)
                 total_slides = len(prs.slides)
                 
-                # [FIXED] 恢復標題讀取功能
+                # [FIXED in v1.7] 恢復標題讀取功能
                 preview_data = []
                 for i, slide in enumerate(prs.slides):
                     txt = slide.shapes.title.text if (slide.shapes.title and slide.shapes.title.text) else "無標題"
