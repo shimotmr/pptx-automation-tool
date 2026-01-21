@@ -409,4 +409,8 @@ if st.session_state.current_file_name:
     with c1:
         st.button("清除任務，上傳新簡報", type="primary", on_click=reset_callback, use_container_width=True)
     with c2:
+<<<<<<< HEAD
         st.link_button("前往「和椿數位資源庫」", "https://aurotek.pse.is/puducases", type="primary", use_container_width=True)
+=======
+        st.link_button("前往「和椿數位資源庫」", "https://aurotek.pse.is/puducases", type="primary", use_container_width=True)
+>>>>>>> 6b3f31d (Update app.py to v1.3 with UI fixes)
