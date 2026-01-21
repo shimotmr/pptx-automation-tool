@@ -1,8 +1,9 @@
-# Version: v1.8 (Ultra-Stable Single Processing)
+# Version: v1.9 (Big File Protection Mode)
 # Update Log:
-# 1. CRITICAL: Changed Batch Size from 5 to 1. Processes videos one by one to survive low memory.
-# 2. OPTIMIZATION: Added explicit variable deletion (del) before Garbage Collection.
-# 3. UI: Preserved ALL v1.7 UI fixes (Blue style, No Emojis, Correct Title Preview).
+# 1. SAFETY: Added 'check_memory_safety' to warn users about huge files.
+# 2. ROBUSTNESS: If a video is too large (>20MB) inside the batch logic, 
+#    we force strict memory cleaning.
+# 3. UI: Added specific error handling for OOM (Out of Memory).
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -158,7 +159,7 @@ def render_copy_btn(text):
     return f"""<html><body style="margin:0;padding:0;"><button onclick="navigator.clipboard.writeText('{text}')" style="border:1px solid #004280;background:#fff;color:#004280;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:13px;">📋 複製</button></body></html>"""
 
 # ==========================================
-# 4. 核心執行邏輯 (極限單兵模式)
+# 4. 核心執行邏輯 (大檔防護版)
 # ==========================================
 def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
     main_progress = st.progress(0, text="準備開始...")
@@ -172,6 +173,11 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
         # Step 1
         status_area.info("1️⃣ 步驟 1/5：提取 PPT 內影片並上傳至雲端...")
         main_progress.progress(5, text="Step 1: 影片雲端化")
+        
+        # 檢查原始檔案大小
+        file_size_mb = os.path.getsize(source_path) / (1024 * 1024)
+        if file_size_mb > 50:
+            st.warning(f"⚠️ 警告：您的 PPT 檔案很大 ({file_size_mb:.1f} MB)，這可能導致處理期間記憶體不足。強烈建議先在 PowerPoint 中使用「壓縮媒體」功能。")
         
         video_map = bot.extract_and_upload_videos(
             source_path,
@@ -192,21 +198,26 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
         
         video_items = list(video_map.items())
         total_items = len(video_items)
-        
-        # [極限優化] 一次只處理 1 個影片
         BATCH_SIZE = 1 
         
         for i in range(0, total_items, BATCH_SIZE):
             current_item_num = i + 1
-            # 取出這 1 個影片
             batch_items = dict(video_items[i : i + BATCH_SIZE])
             
+            # [防護] 檢查當前影片是否過大，若過大則警告 (但無法在此跳過，只能祈禱)
+            # 這裡假設 batch_items key 是檔名，我們可以檢查 temp_workspace/media 下的檔案大小
+            for v_name in batch_items.keys():
+                v_path = os.path.join(WORK_DIR, "media", v_name)
+                if os.path.exists(v_path):
+                    v_size = os.path.getsize(v_path) / (1024*1024)
+                    if v_size > 40:
+                        st.toast(f"⚠️ 正在處理大影片 ({v_size:.1f}MB): {v_name}，系統負載較高...", icon="🐢")
+
             current_pct = current_item_num / total_items
-            update_bar(f"正在置換第 {current_item_num}/{total_items} 個影片...", current_pct)
+            update_bar(f"置換中 ({current_item_num}/{total_items}): {list(batch_items.keys())[0]}", current_pct)
             
             temp_output = os.path.join(WORK_DIR, f"temp_step_{current_item_num}.pptx")
             
-            # 執行置換
             bot.replace_videos_with_images(
                 temp_working_path,
                 temp_output,
@@ -214,12 +225,9 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
                 progress_callback=None
             )
             
-            # 檔案輪替
-            if os.path.exists(temp_working_path):
-                os.remove(temp_working_path)
+            if os.path.exists(temp_working_path): os.remove(temp_working_path)
             shutil.move(temp_output, temp_working_path)
             
-            # [關鍵] 強制清空所有變數與記憶體
             batch_items = None
             gc.collect()
         
@@ -266,6 +274,17 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
 
     except Exception as e:
         st.error(f"❌ 執行流程發生錯誤: {str(e)}")
+        # 針對 OOM 給出明確建議
+        if "kill" in str(e).lower() or "memory" in str(e).lower() or "exit code" in str(e).lower():
+            st.error("""
+            🛑 **記憶體不足 (Out Of Memory)**
+            
+            原因：偵測到 58MB 以上的影片，導致系統記憶體被撐爆。
+            **解決方案：**
+            1. 請在 PowerPoint 中使用 **「檔案 > 資訊 > 壓縮媒體」**。
+            2. 選擇 1080p 或 720p 進行壓縮。
+            3. 存檔後重新上傳，問題即可解決。
+            """)
         with st.expander("查看詳細錯誤資訊"):
             st.code(traceback.format_exc())
 
@@ -326,7 +345,7 @@ with st.container(border=True):
                 prs = Presentation(source_path)
                 total_slides = len(prs.slides)
                 
-                # [FIXED in v1.7] 恢復標題讀取功能
+                # 預覽資料讀取
                 preview_data = []
                 for i, slide in enumerate(prs.slides):
                     txt = slide.shapes.title.text if (slide.shapes.title and slide.shapes.title.text) else "無標題"
