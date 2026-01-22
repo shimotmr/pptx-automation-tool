@@ -1,72 +1,71 @@
-# Version: v2.2 (Live Blackbox Logger)
+# Version: v2.3 (Hotfix + Blackbox Diagnostic)
 # Update Log:
-# 1. MONITOR: Added 'psutil' to track RAM usage in real-time.
-# 2. LOGGING: Implemented a Sidebar Logger that prints every step + Memory Usage.
-# 3. VISUAL: You can now SEE exactly where the script dies and how much RAM was used.
+# 1. FIX: Added missing 'import uuid' to solve NameError.
+# 2. FEATURE: Added 'Sidebar Blackbox Logger' to show real-time memory usage.
+# 3. CORE: Uses 'Single-Item Batching' (Process 1 -> Save -> Clear RAM) to survive 58MB files.
 
 import streamlit as st
 import streamlit.components.v1 as components
 import os
+import uuid  # [FIX] 確保這個有被引入
 import json
 import shutil
 import traceback
 import requests
 import gc
 import math
-import psutil  # [NEW] 用於監控記憶體
+import psutil  # 用於監控記憶體
 from pptx import Presentation
 
 # -------------------------------------------------
-# 1. 依賴檢查
+# 1. 依賴與環境檢查
 # -------------------------------------------------
 try:
     from ppt_processor import PPTAutomationBot
 except ImportError:
-    st.error("❌ 嚴重錯誤：找不到 `ppt_processor.py`，請確認檔案已上傳至同一目錄。")
+    st.error("❌ 嚴重錯誤：找不到 `ppt_processor.py`，請確認檔案已上傳。")
     st.stop()
 
-# ==========================================
-# 2. 設定與 CSS
-# ==========================================
 st.set_page_config(
-    page_title="Aurotek 自動化發布平台 (診斷模式)",
+    page_title="Aurotek 自動化發布平台 (v2.3)",
     page_icon="🔧",
     layout="wide"
 )
 
-# [黑盒子] 側邊欄日誌區域初始化
+# -------------------------------------------------
+# 2. 黑盒子診斷系統 (Sidebar Logger)
+# -------------------------------------------------
 if 'log_history' not in st.session_state:
     st.session_state.log_history = []
 
 def get_ram_usage():
-    """取得目前程式佔用的記憶體 (MB)"""
-    process = psutil.Process(os.getpid())
-    mem = process.memory_info().rss / (1024 * 1024)
-    return f"{mem:.1f} MB"
+    """取得目前雲端容器的記憶體用量"""
+    try:
+        process = psutil.Process(os.getpid())
+        mem = process.memory_info().rss / (1024 * 1024)
+        return f"{mem:.1f} MB"
+    except:
+        return "N/A"
 
-def log_to_sidebar(message, level="info"):
+def log_to_sidebar(message):
     """寫入日誌到側邊欄"""
     ram = get_ram_usage()
     log_entry = f"[{ram}] {message}"
-    print(log_entry) # 同步印在後台 Console
+    print(log_entry) 
     st.session_state.log_history.append(log_entry)
-    
-    # 這裡使用一個空的 placeholder 來強制更新側邊欄
-    # 注意：在 Streamlit 迴圈中頻繁寫入 UI 會些微影響效能，但診斷時是值得的
-    log_container.text_area("📜 執行日誌 (倒序)", "\n".join(st.session_state.log_history[::-1]), height=300)
+    # 強制更新 UI
+    log_placeholder.text_area("📜 執行與記憶體日誌 (倒序)", "\n".join(st.session_state.log_history[::-1]), height=300)
 
-# 側邊欄配置
+# 側邊欄 UI
 with st.sidebar:
     st.header("🔧 黑盒子診斷室")
-    st.info("此區域顯示即時執行細節與記憶體變化。若程式崩潰，請截圖此處。")
-    metric_col1, metric_col2 = st.columns(2)
-    ram_display = metric_col1.empty()
-    status_display = metric_col2.empty()
-    log_container = st.empty() # 日誌容器
+    st.success("✅ 版本：v2.3 (UUID 修復版)")
+    st.info("若程式崩潰，請查看下方的最後一行紀錄。")
+    log_placeholder = st.empty()
 
-    # 顯示目前版本
-    st.success("✅ 版本：v2.2 (診斷版)")
-
+# -------------------------------------------------
+# 3. 設定與 CSS
+# -------------------------------------------------
 LOGO_URL = "https://aurotek.com/wp-content/uploads/2025/07/logo.svg"
 WORK_DIR = "temp_workspace"
 HISTORY_FILE = "job_history.json"
@@ -80,9 +79,7 @@ header[data-testid="stHeader"], .stApp > header { display: none; }
 /* 藍色風格提示 */
 div[data-testid="stAlert"][data-style="success"], 
 div[data-testid="stAlert"][data-style="info"] { 
-    background-color: #F0F2F6 !important; 
-    color: #31333F !important; 
-    border: 1px solid #d0d7de !important; 
+    background-color: #F0F2F6 !important; color: #31333F !important; border: 1px solid #d0d7de !important; 
 }
 div[data-testid="stAlert"] svg { color: #004280 !important; }
 
@@ -113,9 +110,9 @@ div[data-testid="column"] button:hover {
 </style>
 """, unsafe_allow_html=True)
 
-# ==========================================
-# 3. 核心功能函數
-# ==========================================
+# -------------------------------------------------
+# 4. 核心功能函數
+# -------------------------------------------------
 def cleanup_workspace():
     if os.path.exists(WORK_DIR):
         try: shutil.rmtree(WORK_DIR)
@@ -124,7 +121,7 @@ def cleanup_workspace():
 
 def reset_callback():
     cleanup_workspace()
-    st.session_state.log_history = [] # 清空日誌
+    st.session_state.log_history = [] 
     if st.session_state.get('current_file_name') and os.path.exists(HISTORY_FILE):
         try:
             with open(HISTORY_FILE, "r", encoding="utf-8") as f: data = json.load(f)
@@ -132,7 +129,6 @@ def reset_callback():
                 del data[st.session_state.current_file_name]
                 with open(HISTORY_FILE, "w", encoding="utf-8") as f: json.dump(data, f, ensure_ascii=False, indent=2)
         except: pass
-        
     st.session_state.split_jobs = []
     st.session_state.current_file_name = None
     st.session_state.ppt_meta = {"total_slides": 0, "preview_data": []}
@@ -159,9 +155,22 @@ def save_history(filename, jobs):
     except: pass
 
 def add_split_job(total_pages):
+    # [FIX] 確保 uuid 有被 import 才能使用
+    try:
+        new_id = str(uuid.uuid4())[:8]
+    except NameError:
+        import uuid as u_lib
+        new_id = str(u_lib.uuid4())[:8]
+
     st.session_state.split_jobs.insert(0, {
-        "id": str(uuid.uuid4())[:8], "filename": "", "start": 1, "end": total_pages,
-        "category": "清潔", "subcategory": "", "client": "", "keywords": ""
+        "id": new_id, 
+        "filename": "", 
+        "start": 1, 
+        "end": total_pages,
+        "category": "清潔", 
+        "subcategory": "", 
+        "client": "", 
+        "keywords": ""
     })
 
 def remove_split_job(index):
@@ -190,9 +199,9 @@ def scroll_to_step4():
 def render_copy_btn(text):
     return f"""<html><body style="margin:0;padding:0;"><button onclick="navigator.clipboard.writeText('{text}')" style="border:1px solid #004280;background:#fff;color:#004280;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:13px;">📋 複製</button></body></html>"""
 
-# ==========================================
-# 4. 核心執行邏輯 (診斷監控版)
-# ==========================================
+# -------------------------------------------------
+# 5. 核心執行邏輯 (單兵處理 + 黑盒子監控)
+# -------------------------------------------------
 def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
     main_progress = st.progress(0, text="準備開始...")
     status_area = st.empty()
@@ -202,21 +211,19 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
         detail_bar.progress(pct, text=text)
 
     try:
-        log_to_sidebar("🚀 任務開始，準備初始化...")
+        log_to_sidebar("🚀 任務啟動")
         
         # Step 1
         status_area.info("1️⃣ 步驟 1/5：提取 PPT 內影片並上傳至雲端...")
         main_progress.progress(5, text="Step 1: 影片雲端化")
         
-        # [安全檢查]
+        # 大檔預警
         file_size_mb = os.path.getsize(source_path) / (1024 * 1024)
-        log_to_sidebar(f"📂 檢查檔案大小: {file_size_mb:.2f} MB")
-        
+        log_to_sidebar(f"PPT 大小: {file_size_mb:.1f} MB")
         if file_size_mb > 50:
-            st.warning(f"⚠️ 檔案過大 ({file_size_mb:.1f} MB)，可能有崩潰風險。")
-            log_to_sidebar("⚠️ 警告：檔案 > 50MB")
-        
-        log_to_sidebar("開始執行 extract_and_upload_videos...")
+            log_to_sidebar("⚠️ 警告：檔案 > 50MB，高崩潰風險")
+            st.warning("⚠️ 檔案較大，若處理失敗請嘗試壓縮 PPT 內的影片。")
+
         video_map = bot.extract_and_upload_videos(
             source_path,
             os.path.join(WORK_DIR, "media"),
@@ -224,17 +231,16 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
             progress_callback=lambda f, c, t: update_bar(f"上傳中: {f}", c/t if t else 0),
             log_callback=lambda msg: log_to_sidebar(f"[Bot] {msg}")
         )
-        log_to_sidebar(f"✅ 影片上傳完成，共 {len(video_map)} 個影片")
+        log_to_sidebar(f"✅ 上傳完成，共 {len(video_map)} 個影片")
         gc.collect()
 
         # Step 2: Single-Item Processing
-        status_area.info("2️⃣ 步驟 2/5：置換影片連結 (逐一處理模式)...")
+        status_area.info("2️⃣ 步驟 2/5：置換影片連結 (單兵處理模式)...")
         main_progress.progress(25, text="Step 2: 連結置換")
         
         final_mod_path = os.path.join(WORK_DIR, "modified.pptx")
         temp_working_path = os.path.join(WORK_DIR, "temp_working.pptx")
         shutil.copy(source_path, temp_working_path)
-        log_to_sidebar(f"建立暫存工作檔: {temp_working_path}")
         
         video_items = list(video_map.items())
         total_items = len(video_items)
@@ -245,53 +251,49 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
             batch_items = dict(video_items[i : i + BATCH_SIZE])
             v_name = list(batch_items.keys())[0]
             
-            # [監控] 檢查影片大小
+            # 監控日誌
             v_path = os.path.join(WORK_DIR, "media", v_name)
+            v_size_str = "Unknown"
             if os.path.exists(v_path):
-                v_size = os.path.getsize(v_path) / (1024*1024)
-                log_to_sidebar(f"🎬 [#{current_item_num}] 準備處理: {v_name} ({v_size:.1f} MB)")
-                if v_size > 40:
-                    log_to_sidebar(f"⚠️ 大檔警告！記憶體可能飆升")
+                v_mb = os.path.getsize(v_path)/(1024*1024)
+                v_size_str = f"{v_mb:.1f} MB"
+                if v_mb > 40: log_to_sidebar(f"⚠️ 大檔預警: {v_name} ({v_size_str})")
             
-            current_pct = current_item_num / total_items
-            update_bar(f"置換中 ({current_item_num}/{total_items}): {v_name}", current_pct)
+            log_to_sidebar(f"🔄 正在處理 ({current_item_num}/{total_items}): {v_name} [{v_size_str}]")
+            update_bar(f"置換中 ({current_item_num}/{total_items}): {v_name}", current_item_num / total_items)
             
             temp_output = os.path.join(WORK_DIR, f"temp_step_{current_item_num}.pptx")
             
-            # 呼叫 Bot
-            log_to_sidebar(f"🔄 呼叫 replace_videos (第 {current_item_num} 次)...")
             bot.replace_videos_with_images(
                 temp_working_path,
                 temp_output,
                 batch_items,
                 progress_callback=None
             )
-            log_to_sidebar(f"✅ 第 {current_item_num} 次置換完成，釋放記憶體")
             
             if os.path.exists(temp_working_path): os.remove(temp_working_path)
             shutil.move(temp_output, temp_working_path)
             
             batch_items = None
-            gc.collect() # [關鍵]
+            gc.collect() # 關鍵釋放
+            log_to_sidebar(f"✅ 完成 {v_name}，釋放記憶體")
         
         if os.path.exists(final_mod_path): os.remove(final_mod_path)
         shutil.move(temp_working_path, final_mod_path)
-        log_to_sidebar("🎉 Step 2 全部完成")
         detail_bar.empty()
 
         # Step 3
         status_area.info("3️⃣ 步驟 3/5：進行檔案壓縮與瘦身...")
         main_progress.progress(45, text="Step 3: 檔案瘦身")
         slim_path = os.path.join(WORK_DIR, "slim.pptx")
-        log_to_sidebar("開始壓縮 PPTX...")
+        log_to_sidebar("開始壓縮 PPT...")
         bot.shrink_pptx(final_mod_path, slim_path, progress_callback=lambda c, t: update_bar("壓縮中...", c/t if t else 0))
-        log_to_sidebar("✅ 壓縮完成")
         gc.collect()
 
         # Step 4
         status_area.info("4️⃣ 步驟 4/5：依設定拆分簡報並上傳...")
         main_progress.progress(65, text="Step 4: 拆分發布")
-        log_to_sidebar("開始拆分與上傳 Google Slides...")
+        log_to_sidebar("開始拆分與上傳...")
         results = bot.split_and_upload(
             slim_path, sorted(jobs, key=lambda x: x['start']), file_prefix,
             progress_callback=lambda f, c, t: update_bar(f"上傳簡報: {f}", c/t if t else 0),
@@ -300,13 +302,13 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
         
         if any(r.get('error_too_large') for r in results):
             st.error("⛔️ 流程終止：部分檔案過大無法上傳。")
-            log_to_sidebar("❌ 錯誤：拆分後檔案仍過大")
+            log_to_sidebar("❌ 錯誤：拆分後檔案過大")
             return
 
         # Step 5
         status_area.info("5️⃣ 步驟 5/5：優化線上播放器...")
         main_progress.progress(85, text="Step 5: 內嵌優化")
-        log_to_sidebar("開始優化 Embed...")
+        log_to_sidebar("優化 Embed...")
         final_results = bot.embed_videos_in_slides(results, progress_callback=lambda c, t: update_bar("優化中...", c/t if t else 0), log_callback=print)
 
         # Final
@@ -316,23 +318,23 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
 
         main_progress.progress(100, text="任務完成")
         status_area.info("**成功：** 所有自動化流程執行完畢。", icon=None)
-        log_to_sidebar("🎉🎉🎉 全部任務執行完畢！")
+        log_to_sidebar("🎉🎉🎉 全部完成")
         
         if auto_clean: cleanup_workspace()
         
         st.session_state.execution_results = {"results": final_results, "prefix": file_prefix}
 
     except Exception as e:
-        log_to_sidebar(f"❌❌❌ 致命錯誤: {str(e)}")
+        log_to_sidebar(f"❌ 崩潰: {str(e)}")
         st.error(f"❌ 執行流程發生錯誤: {str(e)}")
         if "kill" in str(e).lower() or "memory" in str(e).lower():
-             st.error("🛑 系統記憶體不足。請參考側邊欄日誌確認崩潰點。")
+             st.error("🛑 記憶體不足。請參考左側日誌，若在處理 58MB 影片時崩潰，請務必先壓縮該影片。")
         with st.expander("查看詳細錯誤資訊"):
             st.code(traceback.format_exc())
 
-# ==========================================
-# 5. 主介面邏輯
-# ==========================================
+# -------------------------------------------------
+# 6. 主介面邏輯
+# -------------------------------------------------
 os.makedirs(WORK_DIR, exist_ok=True)
 
 # Header
