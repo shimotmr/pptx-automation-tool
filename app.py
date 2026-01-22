@@ -1,14 +1,14 @@
-# Version: v2.4 (Crash Recorder + UUID Fix)
+# Version: v2.5 (Google Drive Logger + OOM Protection)
 # Update Log:
-# 1. FIX: Added 'import uuid' at the top level to fix NameError.
-# 2. FEATURE: "Crash Recorder" - Writes logs to disk instantly.
-# 3. FEATURE: "Post-Crash Analysis" - Shows the log file content upon page reload/restart.
-# 4. MONITOR: Tracks specific video processing steps to pinpoint the killer file.
+# 1. LOGGING: Auto-uploads 'crash_log.txt' to Google Drive on error or restart.
+#    (Uses existing bot credentials, no new setup needed!)
+# 2. DIAGNOSIS: Distinguishes between "Embedded" (Memory Heavy) and "Linked" files.
+# 3. STABILITY: Keeps Single-Item Batching to minimize RAM usage.
 
 import streamlit as st
 import streamlit.components.v1 as components
 import os
-import uuid  # [CRITICAL FIX] 確保在最上層引入
+import uuid
 import json
 import shutil
 import traceback
@@ -16,68 +16,84 @@ import requests
 import gc
 import math
 import psutil
-import time
 from datetime import datetime
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
 from pptx import Presentation
 
-# ==========================================
-# 0. 崩潰救援系統 (Crash Recovery)
-# ==========================================
+# -------------------------------------------------
+# 0. 雲端日誌系統 (Drive Logger)
+# -------------------------------------------------
 LOG_FILE = "crash_log.txt"
 
-def write_crash_log(message):
-    """將訊息即時寫入硬碟，確保崩潰後仍能讀取"""
+def write_log(message):
+    """寫入本地日誌"""
     try:
         timestamp = datetime.now().strftime("%H:%M:%S")
-        # 取得記憶體
         process = psutil.Process(os.getpid())
         mem = process.memory_info().rss / (1024 * 1024)
+        log_line = f"[{timestamp}] [RAM:{mem:.0f}MB] {message}\n"
         
-        log_line = f"[{timestamp}] [RAM: {mem:.1f}MB] {message}\n"
-        
-        # 使用 'a' (append) 模式寫入，並強制 flush
         with open(LOG_FILE, "a", encoding="utf-8") as f:
             f.write(log_line)
-            f.flush()
-            os.fsync(f.fileno()) # 強制寫入磁碟
-            
-        print(log_line.strip()) # 同時印在後台
+        print(log_line.strip())
+    except: pass
+
+def upload_log_to_drive(creds, filename=LOG_FILE):
+    """將日誌檔上傳到 Google Drive"""
+    if not os.path.exists(filename): return
+    try:
+        service = build('drive', 'v3', credentials=creds)
+        file_metadata = {'name': f'Debug_Log_{datetime.now().strftime("%Y%m%d_%H%M%S")}.txt'}
+        media = MediaFileUpload(filename, mimetype='text/plain')
+        
+        file = service.files().create(
+            body=file_metadata,
+            media_body=media,
+            fields='id'
+        ).execute()
+        
+        write_log(f"✅ 日誌已上傳至 Drive, ID: {file.get('id')}")
+        return file.get('id')
     except Exception as e:
-        print(f"Logging failed: {e}")
+        write_log(f"❌ 日誌上傳失敗: {e}")
+        return None
 
-# ==========================================
+# -------------------------------------------------
 # 1. 依賴與環境檢查
-# ==========================================
-st.set_page_config(
-    page_title="Aurotek 自動化發布平台 (v2.4)",
-    page_icon="🔴",
-    layout="wide"
-)
-
-# [救援模式] 如果偵測到上次的日誌檔，顯示在最上方
-if os.path.exists(LOG_FILE):
-    with st.expander("🆘 上一次執行的崩潰紀錄 (點擊查看)", expanded=True):
-        st.warning("偵測到系統可能有異常終止，以下是最後的執行紀錄：")
-        with open(LOG_FILE, "r", encoding="utf-8") as f:
-            st.code(f.read(), language="log")
-        
-        c_clear, c_dl = st.columns([1, 1])
-        if c_clear.button("🗑️ 清除日誌並繼續"):
-            os.remove(LOG_FILE)
-            st.rerun()
-        
-        # 提供下載按鈕，讓您可以把 log 下載下來給我看
-        with open(LOG_FILE, "rb") as f:
-            c_dl.download_button("⬇️ 下載日誌檔 (傳給工程師)", f, file_name="crash_log.txt")
-
+# -------------------------------------------------
 try:
     from ppt_processor import PPTAutomationBot
 except ImportError:
     st.error("❌ 嚴重錯誤：找不到 `ppt_processor.py`，請確認檔案已上傳。")
     st.stop()
 
+st.set_page_config(
+    page_title="Aurotek 自動化發布平台 (v2.5)",
+    page_icon="☁️",
+    layout="wide"
+)
+
 # -------------------------------------------------
-# 2. 設定與 CSS
+# 2. 自動救援機制 (Auto-Recovery)
+# -------------------------------------------------
+# 如果機器人已初始化，嘗試在上一次崩潰後上傳日誌
+if 'bot' in st.session_state and os.path.exists(LOG_FILE):
+    # 檢查日誌是否包含錯誤關鍵字，若有則自動上傳
+    with open(LOG_FILE, "r", encoding="utf-8") as f:
+        content = f.read()
+    
+    if "CRITICAL" in content or "ERROR" in content or len(content) > 100:
+        with st.sidebar:
+            st.warning("⚠️ 偵測到未處理的日誌，正在備份至 Drive...")
+            file_id = upload_log_to_drive(st.session_state.bot.creds)
+            if file_id:
+                st.success(f"✅ 崩潰紀錄已備份至 Drive (ID: {file_id})")
+                # 備份後刪除本地，避免重複
+                os.remove(LOG_FILE)
+
+# -------------------------------------------------
+# 3. UI 設定
 # -------------------------------------------------
 LOGO_URL = "https://aurotek.com/wp-content/uploads/2025/07/logo.svg"
 WORK_DIR = "temp_workspace"
@@ -85,46 +101,23 @@ HISTORY_FILE = "job_history.json"
 
 st.markdown("""
 <style>
-/* 隱藏 Header */
 header[data-testid="stHeader"], .stApp > header { display: none; }
 .block-container { padding-top: 1rem !important; padding-bottom: 6rem !important; }
-
-/* 藍色風格提示 */
-div[data-testid="stAlert"][data-style="success"], 
-div[data-testid="stAlert"][data-style="info"] { 
-    background-color: #F0F2F6 !important; color: #31333F !important; border: 1px solid #d0d7de !important; 
-}
-div[data-testid="stAlert"] svg { color: #004280 !important; }
-
-/* 上傳按鈕優化 */
+div[data-testid="stAlert"] { background-color: #F0F2F6; color: #31333F; border: 1px solid #d0d7de; }
+div[data-testid="stAlert"] svg { color: #004280; }
 [data-testid="stFileUploaderDropzoneInstructions"] > div { display: none !important; }
-[data-testid="stFileUploaderDropzoneInstructions"]::before {
-    content: "請將檔案拖放至此"; display: block; font-weight: 700; color: #31333F; margin-bottom: 4px;
-}
-section[data-testid="stFileUploaderDropzone"] button {
-    border: 1px solid #d0d7de; background: #fff; color: transparent !important;
-    position: relative; border-radius: 4px; min-height: 38px; width: auto; margin-top: 10px;
-}
-section[data-testid="stFileUploaderDropzone"] button::after {
-    content: "瀏覽檔案"; position: absolute; color: #31333F; left: 50%; top: 50%; transform: translate(-50%, -50%);
-    white-space: nowrap; font-weight: 500; font-size: 14px;
-}
+[data-testid="stFileUploaderDropzoneInstructions"]::before { content: "請將檔案拖放至此"; display: block; font-weight: 700; color: #31333F; }
+section[data-testid="stFileUploaderDropzone"] button { border: 1px solid #d0d7de; background: #fff; color: transparent !important; position: relative; border-radius: 4px; min-height: 38px; width: auto; margin-top: 10px; }
+section[data-testid="stFileUploaderDropzone"] button::after { content: "瀏覽檔案"; position: absolute; color: #31333F; left: 50%; top: 50%; transform: translate(-50%, -50%); white-space: nowrap; font-weight: 500; font-size: 14px; }
 [data-testid="stFileUploaderDeleteBtn"] { border: none !important; background: transparent; color: inherit !important; }
 [data-testid="stFileUploaderDeleteBtn"]::after { content: none; }
-
-/* 垃圾桶與按鈕對齊 */
-div[data-testid="column"] button { 
-    border: 1px solid #eee !important; background: white !important; color: #555 !important; 
-    font-size: 0.85rem !important; min-width: 40px !important; padding: 4px 8px !important; 
-}
-div[data-testid="column"] button:hover { 
-    color: #cc0000 !important; border-color: #cc0000 !important; background: #fff5f5 !important; 
-}
+div[data-testid="column"] button { border: 1px solid #eee !important; background: white !important; color: #555 !important; font-size: 0.85rem !important; min-width: 40px !important; padding: 4px 8px !important; }
+div[data-testid="column"] button:hover { color: #cc0000 !important; border-color: #cc0000 !important; background: #fff5f5 !important; }
 </style>
 """, unsafe_allow_html=True)
 
 # -------------------------------------------------
-# 3. 核心功能函數
+# 4. 核心功能函數
 # -------------------------------------------------
 def cleanup_workspace():
     if os.path.exists(WORK_DIR):
@@ -134,7 +127,6 @@ def cleanup_workspace():
 
 def reset_callback():
     cleanup_workspace()
-    # 清除日誌檔，開始新的一輪
     if os.path.exists(LOG_FILE): os.remove(LOG_FILE)
     
     if st.session_state.get('current_file_name') and os.path.exists(HISTORY_FILE):
@@ -170,17 +162,10 @@ def save_history(filename, jobs):
     except: pass
 
 def add_split_job(total_pages):
-    # 使用 uuid 產生 ID
     new_id = str(uuid.uuid4())[:8]
     st.session_state.split_jobs.insert(0, {
-        "id": new_id, 
-        "filename": "", 
-        "start": 1, 
-        "end": total_pages,
-        "category": "清潔", 
-        "subcategory": "", 
-        "client": "", 
-        "keywords": ""
+        "id": new_id, "filename": "", "start": 1, "end": total_pages,
+        "category": "清潔", "subcategory": "", "client": "", "keywords": ""
     })
 
 def remove_split_job(index):
@@ -210,43 +195,45 @@ def render_copy_btn(text):
     return f"""<html><body style="margin:0;padding:0;"><button onclick="navigator.clipboard.writeText('{text}')" style="border:1px solid #004280;background:#fff;color:#004280;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:13px;">📋 複製</button></body></html>"""
 
 # -------------------------------------------------
-# 4. 核心執行邏輯 (硬碟日誌監控版)
+# 5. 核心執行邏輯 (Drive Logging)
 # -------------------------------------------------
 def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
     main_progress = st.progress(0, text="準備開始...")
     status_area = st.empty()
     detail_bar = st.empty()
     
-    # 寫入初始化日誌
+    # 清空並初始化日誌
     if os.path.exists(LOG_FILE): os.remove(LOG_FILE)
-    write_crash_log("=== 新任務啟動 v2.4 ===")
-    write_crash_log(f"檔案: {source_path}")
-    write_crash_log(f"任務數: {len(jobs)}")
+    write_log(f"=== 新任務啟動 v2.5 ===")
+    write_log(f"檔案路徑: {source_path}")
 
     def update_bar(text, pct):
         detail_bar.progress(pct, text=text)
 
     try:
-        write_crash_log("STEP 1: 開始影片上傳")
+        # Step 1
         status_area.info("1️⃣ 步驟 1/5：提取 PPT 內影片並上傳至雲端...")
         main_progress.progress(5, text="Step 1: 影片雲端化")
         
-        # 檢查檔案
-        f_size = os.path.getsize(source_path)/(1024*1024)
-        write_crash_log(f"PPT 大小: {f_size:.2f} MB")
+        file_size_mb = os.path.getsize(source_path) / (1024 * 1024)
+        write_log(f"PPT 檔案大小: {file_size_mb:.2f} MB")
         
+        if file_size_mb > 50:
+            write_log("⚠️ 警告：檔案 > 50MB，高風險")
+            st.warning("⚠️ 檔案過大，若失敗請壓縮 PPT。")
+
         video_map = bot.extract_and_upload_videos(
             source_path,
             os.path.join(WORK_DIR, "media"),
             file_prefix=file_prefix,
             progress_callback=lambda f, c, t: update_bar(f"上傳中: {f}", c/t if t else 0),
-            log_callback=lambda msg: write_crash_log(f"[Bot] {msg}")
+            log_callback=lambda msg: write_log(f"[Bot] {msg}")
         )
-        write_crash_log(f"STEP 1 完成. 偵測到影片數: {len(video_map)}")
+        write_log(f"影片上傳完成，共 {len(video_map)} 個")
         gc.collect()
 
-        # Step 2: 逐一處理
-        status_area.info("2️⃣ 步驟 2/5：置換影片連結 (硬碟日誌監控中)...")
+        # Step 2
+        status_area.info("2️⃣ 步驟 2/5：置換影片連結...")
         main_progress.progress(25, text="Step 2: 連結置換")
         
         final_mod_path = os.path.join(WORK_DIR, "modified.pptx")
@@ -262,99 +249,93 @@ def execute_automation_logic(bot, source_path, file_prefix, jobs, auto_clean):
             batch_items = dict(video_items[i : i + BATCH_SIZE])
             v_name = list(batch_items.keys())[0]
             
-            # 紀錄當前處理的影片
-            write_crash_log(f"--- 正在處理影片 {current_item_num}/{total_items}: {v_name} ---")
+            write_log(f"正在處理影片 ({current_item_num}/{total_items}): {v_name}")
             
-            # 檢查單一影片大小
+            # 檢查影片實體大小
             v_path = os.path.join(WORK_DIR, "media", v_name)
             if os.path.exists(v_path):
-                v_mb = os.path.getsize(v_path) / (1024*1024)
-                write_crash_log(f"影片大小: {v_mb:.2f} MB")
-            
-            current_pct = current_item_num / total_items
-            update_bar(f"置換中 ({current_item_num}/{total_items}): {v_name}", current_pct)
+                v_mb = os.path.getsize(v_path)/(1024*1024)
+                write_log(f"影片實體大小: {v_mb:.1f} MB")
+                if v_mb > 30: write_log("⚠️ 此影片較大，記憶體可能飆升")
+
+            update_bar(f"置換中 ({current_item_num}/{total_items}): {v_name}", current_item_num / total_items)
             
             temp_output = os.path.join(WORK_DIR, f"temp_step_{current_item_num}.pptx")
             
-            # 執行置換
-            write_crash_log(f"呼叫 replace_videos...")
             bot.replace_videos_with_images(
                 temp_working_path,
                 temp_output,
                 batch_items,
                 progress_callback=None
             )
-            write_crash_log(f"置換完成，準備存檔與釋放記憶體")
             
             if os.path.exists(temp_working_path): os.remove(temp_working_path)
             shutil.move(temp_output, temp_working_path)
             
             batch_items = None
-            gc.collect() 
-            write_crash_log(f"記憶體釋放完成")
+            gc.collect()
+            write_log("記憶體釋放完成")
         
         if os.path.exists(final_mod_path): os.remove(final_mod_path)
         shutil.move(temp_working_path, final_mod_path)
-        write_crash_log("STEP 2 全部完成")
         detail_bar.empty()
 
         # Step 3
         status_area.info("3️⃣ 步驟 3/5：進行檔案壓縮與瘦身...")
         main_progress.progress(45, text="Step 3: 檔案瘦身")
         slim_path = os.path.join(WORK_DIR, "slim.pptx")
-        
-        write_crash_log("STEP 3: 開始壓縮")
+        write_log("開始壓縮 PPT")
         bot.shrink_pptx(final_mod_path, slim_path, progress_callback=lambda c, t: update_bar("壓縮中...", c/t if t else 0))
-        write_crash_log("STEP 3 完成")
         gc.collect()
 
         # Step 4
         status_area.info("4️⃣ 步驟 4/5：依設定拆分簡報並上傳...")
         main_progress.progress(65, text="Step 4: 拆分發布")
-        write_crash_log("STEP 4: 開始拆分與上傳")
-        
+        write_log("開始上傳 Slide")
         results = bot.split_and_upload(
             slim_path, sorted(jobs, key=lambda x: x['start']), file_prefix,
             progress_callback=lambda f, c, t: update_bar(f"上傳簡報: {f}", c/t if t else 0),
-            log_callback=lambda msg: write_crash_log(f"[Upload] {msg}")
+            log_callback=lambda msg: write_log(f"[Upload] {msg}")
         )
         
         if any(r.get('error_too_large') for r in results):
-            write_crash_log("錯誤: 檔案過大")
+            write_log("錯誤：檔案過大")
             st.error("⛔️ 流程終止：部分檔案過大無法上傳。")
             return
 
         # Step 5
         status_area.info("5️⃣ 步驟 5/5：優化線上播放器...")
         main_progress.progress(85, text="Step 5: 內嵌優化")
-        write_crash_log("STEP 5: 開始優化 Embed")
+        write_log("開始 Embed 優化")
         final_results = bot.embed_videos_in_slides(results, progress_callback=lambda c, t: update_bar("優化中...", c/t if t else 0), log_callback=print)
 
         # Final
         status_area.info("📝 最後步驟：寫入資料庫...")
         main_progress.progress(95, text="Final: 寫入資料庫")
-        write_crash_log("FINAL: 寫入 Sheet")
+        write_log("寫入資料庫")
         bot.log_to_sheets(final_results, log_callback=print)
 
         main_progress.progress(100, text="任務完成")
         status_area.info("**成功：** 所有自動化流程執行完畢。", icon=None)
-        write_crash_log("SUCCESS: 任務全部成功結束")
+        write_log("任務成功結束")
         
         if auto_clean: cleanup_workspace()
-        
         st.session_state.execution_results = {"results": final_results, "prefix": file_prefix}
 
     except Exception as e:
         err_msg = f"CRITICAL ERROR: {str(e)}\n{traceback.format_exc()}"
-        write_crash_log(err_msg)
-        st.error(f"❌ 執行流程發生錯誤: {str(e)}")
+        write_log(err_msg)
+        st.error(f"❌ 執行錯誤: {str(e)}")
         if "kill" in str(e).lower() or "memory" in str(e).lower():
-             st.error("🛑 記憶體不足。請重新整理頁面查看詳細日誌。")
-        with st.expander("查看詳細錯誤資訊"):
+             st.error("🛑 記憶體不足。請稍後查看 Drive 日誌。")
+        
+        # 崩潰當下嘗試緊急上傳 Log
+        upload_log_to_drive(bot.creds)
+        with st.expander("查看錯誤詳情"):
             st.code(traceback.format_exc())
 
 # ==========================================
-# 5. 主介面邏輯
+# 6. 主介面邏輯
 # ==========================================
 os.makedirs(WORK_DIR, exist_ok=True)
 
